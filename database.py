@@ -88,24 +88,57 @@ def init_db():
             created_at TEXT
         )
     ''')
-    
-    # Предустановленные топ-атлеты для Зала Славы, если база пустая
-    c.execute('SELECT COUNT(*) as count FROM athletes')
-    row = c.fetchone()
-    if row['count'] == 0:
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        seed_athletes = [
-            ("Василий «Турбо-Шот»", "vasya_turbo", 85.0, "m", "zms", "Заслуженный Мастер Спорта (ЗМС)", 340.5, 320.0, 1.85, "Академическое застольное многоборье", "№ ЗМС-001/ФЛР-2026", 1, json.dumps(["first_sip", "kms_rank", "ms_legend", "zms_god", "snack_master"]), now, now),
-            ("Елена Прекрасная", "elena_craft", 58.0, "f", "msmk", "МСМК (Международный класс)", 275.0, 190.0, 1.45, "Классический пенный слалом", "№ МСМК-014/ФЛР-2026", 1, json.dumps(["first_sip", "kms_rank", "ms_legend"]), now, now),
-            ("Дмитрий «Автопилот»", "dima_pilot", 92.0, "m", "ms", "Мастер Спорта по Литрболу (МС)", 215.0, 240.0, 1.60, "Двоеборье «Ёрш-Биатлон» (пиво + водка)", "№ МС-089/ФЛР-2026", 1, json.dumps(["first_sip", "biathlon_champ", "kms_rank", "ms_legend"]), now, now),
-            ("Сергей Николаевич", "serge_pro", 105.0, "m", "kms", "КМС (Кандидат в Мастера Спорта)", 175.0, 200.0, 1.30, "Стайерский многочасовой марафон", "№ КМС-102/ФЛР-2026", 1, json.dumps(["first_sip", "kms_rank", "no_ex_call"]), now, now),
-            ("Антон «Кефир»", "anton_junior", 70.0, "m", "adult_1", "1-й Взрослый разряд", 130.0, 140.0, 1.10, "Скоростной спринт по шотам", "№ ВЗР-412/ФЛР-2026", 0, json.dumps(["first_sip", "detector_passed"]), now, now)
-        ]
-        c.executemany('''
-            INSERT INTO athletes (name, username, weight, gender, rank_id, rank_title, score, pure_ethanol_g, est_bac, discipline, order_num, verified, achievements, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', seed_athletes)
-    
+
+    # Таблица чатов (групп и супергрупп)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS chats (
+            chat_id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL,
+            chat_type TEXT DEFAULT 'group',
+            member_count INTEGER DEFAULT 0,
+            total_ethanol_g REAL DEFAULT 0,
+            drinks_count INTEGER DEFAULT 0,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    ''')
+
+    # Таблица участников чатов и их статистики в конкретном чате
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS chat_members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            tg_user_id INTEGER NOT NULL,
+            user_name TEXT NOT NULL,
+            username TEXT,
+            score REAL DEFAULT 0,
+            rank_title TEXT DEFAULT '3-й Юношеский разряд',
+            pure_ethanol_g REAL DEFAULT 0,
+            drinks_count INTEGER DEFAULT 0,
+            last_drink TEXT,
+            updated_at TEXT,
+            UNIQUE(chat_id, tg_user_id)
+        )
+    ''')
+
+    # Таблица журнала возлияний в чатах
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS chat_drinks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            tg_user_id INTEGER NOT NULL,
+            user_name TEXT NOT NULL,
+            drink_name TEXT NOT NULL,
+            volume_ml REAL NOT NULL,
+            abv REAL NOT NULL,
+            pure_ethanol_g REAL NOT NULL,
+            created_at TEXT
+        )
+    ''')
+
+    # Очистка фейковых записей (только реальные пользователи с tg_user_id)
+    c.execute('DELETE FROM athletes WHERE tg_user_id IS NULL')
+
     conn.commit()
     conn.close()
 
@@ -219,6 +252,7 @@ def get_leaderboard(limit: int = 20) -> list:
     c.execute('''
         SELECT id, tg_user_id, name, username, rank_title, rank_id, score, discipline, verified, achievements, updated_at
         FROM athletes
+        WHERE tg_user_id IS NOT NULL
         ORDER BY score DESC
         LIMIT ?
     ''', (limit,))
@@ -231,6 +265,186 @@ def get_leaderboard(limit: int = 20) -> list:
         item['achievements'] = json.loads(item.get('achievements') or '[]')
         result.append(item)
     return result
+
+def track_or_update_chat(chat_id: int, title: str, chat_type: str = "group", member_count: int = 0) -> dict:
+    """Регистрирует или обновляет чат при добавлении бота или активности"""
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    c.execute('SELECT * FROM chats WHERE chat_id = ?', (chat_id,))
+    existing = c.fetchone()
+    if existing:
+        c.execute('''
+            UPDATE chats SET
+                title = ?, chat_type = ?, member_count = ?, updated_at = ?
+            WHERE chat_id = ?
+        ''', (title, chat_type, member_count or existing['member_count'], now, chat_id))
+    else:
+        c.execute('''
+            INSERT INTO chats (chat_id, title, chat_type, member_count, total_ethanol_g, drinks_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 0, 0, ?, ?)
+        ''', (chat_id, title, chat_type, member_count, now, now))
+    conn.commit()
+    conn.close()
+    return get_chat(chat_id)
+
+def get_chat(chat_id: int) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('SELECT * FROM chats WHERE chat_id = ?', (chat_id,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def record_chat_drink(chat_id: int, tg_user_id: int, user_name: str, username: str = None, 
+                      drink_name: str = "Пиво", volume_ml: float = 500.0, abv: float = 5.0) -> dict:
+    """Фиксирует выпитый напиток участником чата, обновляет баланс спирта и разряд"""
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    pure_ethanol = round(volume_ml * (abv / 100.0) * 0.789, 1)
+
+    # 1. Запись в журнал
+    c.execute('''
+        INSERT INTO chat_drinks (chat_id, tg_user_id, user_name, drink_name, volume_ml, abv, pure_ethanol_g, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (chat_id, tg_user_id, user_name, drink_name, volume_ml, abv, pure_ethanol, now))
+
+    # 2. Обновление общих показателей чата
+    c.execute('SELECT chat_id FROM chats WHERE chat_id = ?', (chat_id,))
+    if not c.fetchone():
+        c.execute('''
+            INSERT INTO chats (chat_id, title, chat_type, member_count, total_ethanol_g, drinks_count, created_at, updated_at)
+            VALUES (?, ?, 'group', 1, ?, 1, ?, ?)
+        ''', (chat_id, "Застольный чат", pure_ethanol, now, now))
+    else:
+        c.execute('''
+            UPDATE chats SET
+                total_ethanol_g = total_ethanol_g + ?,
+                drinks_count = drinks_count + 1,
+                updated_at = ?
+            WHERE chat_id = ?
+        ''', (pure_ethanol, now, chat_id))
+
+    def calc_chat_rank(total_eth: float) -> str:
+        if total_eth >= 250: return "Заслуженный Мастер Спорта (ЗМС)"
+        if total_eth >= 180: return "Мастер Спорта по Литрболу (МС)"
+        if total_eth >= 120: return "КМС (Кандидат в Мастера Спорта)"
+        if total_eth >= 75:  return "1-й Взрослый разряд"
+        if total_eth >= 45:  return "2-й Взрослый разряд"
+        if total_eth >= 20:  return "3-й Взрослый разряд"
+        if total_eth >= 10:  return "1-й Юношеский разряд"
+        return "2-й Юношеский разряд"
+
+    # 3. Обновление участника в данном чате
+    c.execute('SELECT * FROM chat_members WHERE chat_id = ? AND tg_user_id = ?', (chat_id, tg_user_id))
+    member = c.fetchone()
+    
+    if member:
+        new_pure = round(member['pure_ethanol_g'] + pure_ethanol, 1)
+        new_drinks = member['drinks_count'] + 1
+        new_score = round(member['score'] + (pure_ethanol * 1.2), 1)
+        new_rank = calc_chat_rank(new_pure)
+        c.execute('''
+            UPDATE chat_members SET
+                user_name = ?, username = ?, score = ?, rank_title = ?,
+                pure_ethanol_g = ?, drinks_count = ?, last_drink = ?, updated_at = ?
+            WHERE chat_id = ? AND tg_user_id = ?
+        ''', (user_name, username, new_score, new_rank, new_pure, new_drinks, f"{drink_name} ({volume_ml} мл)", now, chat_id, tg_user_id))
+    else:
+        new_pure = pure_ethanol
+        new_drinks = 1
+        new_score = round(pure_ethanol * 1.2, 1)
+        new_rank = calc_chat_rank(new_pure)
+        c.execute('''
+            INSERT INTO chat_members (chat_id, tg_user_id, user_name, username, score, rank_title, pure_ethanol_g, drinks_count, last_drink, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (chat_id, tg_user_id, user_name, username, new_score, new_rank, new_pure, new_drinks, f"{drink_name} ({volume_ml} мл)", now))
+
+    # 4. Синхронизируем пользователя в глобальной таблице athletes
+    c.execute('SELECT * FROM athletes WHERE tg_user_id = ?', (tg_user_id,))
+    global_user = c.fetchone()
+    if global_user:
+        g_new_score = max(global_user['score'], new_score)
+        c.execute('''
+            UPDATE athletes SET
+                name = ?, username = ?, score = ?, pure_ethanol_g = pure_ethanol_g + ?, updated_at = ?
+            WHERE tg_user_id = ?
+        ''', (user_name, username, g_new_score, pure_ethanol, now, tg_user_id))
+    else:
+        c.execute('''
+            INSERT INTO athletes (tg_user_id, name, username, score, pure_ethanol_g, rank_title, discipline, order_num, verified, achievements, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '["first_sip"]', ?, ?)
+        ''', (tg_user_id, user_name, username, new_score, pure_ethanol, new_rank, "Застолье в чате", f"№ ЧАТ-{tg_user_id % 10000}", now, now))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "user_name": user_name,
+        "drink": drink_name,
+        "volume_ml": volume_ml,
+        "abv": abv,
+        "pure_ethanol_g": pure_ethanol,
+        "user_total_ethanol": new_pure,
+        "user_drinks_count": new_drinks,
+        "user_rank": new_rank,
+        "user_score": new_score
+    }
+
+def get_chat_leaderboard(chat_id: int, limit: int = 20) -> list:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('''
+        SELECT id, chat_id, tg_user_id, user_name, username, score, rank_title, pure_ethanol_g, drinks_count, last_drink, updated_at
+        FROM chat_members
+        WHERE chat_id = ?
+        ORDER BY score DESC, pure_ethanol_g DESC
+        LIMIT ?
+    ''', (chat_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_chat_stats(chat_id: int) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('SELECT * FROM chats WHERE chat_id = ?', (chat_id,))
+    chat = c.fetchone()
+    if not chat:
+        c.execute('SELECT COUNT(*) as cnt, SUM(pure_ethanol_g) as eth, SUM(drinks_count) as drk FROM chat_members WHERE chat_id = ?', (chat_id,))
+        agg = c.fetchone()
+        if agg and agg['cnt'] > 0:
+            chat_dict = {
+                "chat_id": chat_id,
+                "title": "Застольный чат",
+                "chat_type": "group",
+                "member_count": agg['cnt'],
+                "total_ethanol_g": round(agg['eth'] or 0, 1),
+                "drinks_count": agg['drk'] or 0,
+            }
+        else:
+            conn.close()
+            return None
+    else:
+        chat_dict = dict(chat)
+
+    c.execute('''
+        SELECT user_name, score, rank_title, pure_ethanol_g, drinks_count
+        FROM chat_members
+        WHERE chat_id = ?
+        ORDER BY score DESC
+        LIMIT 1
+    ''', (chat_id,))
+    top_row = c.fetchone()
+    chat_dict['top_athlete'] = dict(top_row) if top_row else None
+
+    c.execute('SELECT COUNT(*) as active_count FROM chat_members WHERE chat_id = ?', (chat_id,))
+    chat_dict['active_athletes_count'] = c.fetchone()['active_count']
+
+    conn.close()
+    return chat_dict
 
 def create_or_play_duel(creator_data: dict, opponent_data: dict = None) -> dict:
     """Создает или разыгрывает дуэль между двумя атлетами"""

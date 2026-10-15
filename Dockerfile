@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfreetype6-dev \
     libjpeg-dev \
     zlib1g-dev \
+    fonts-dejavu-core \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

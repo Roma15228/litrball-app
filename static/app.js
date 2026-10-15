@@ -58,6 +58,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Telegram WebApp адаптация
 function initTelegramWebApp() {
+  const urlParams = new URLSearchParams(window.location.search);
+  STATE.chatId = urlParams.get('chat_id') || null;
+
   if (window.Telegram && window.Telegram.WebApp) {
     const tg = window.Telegram.WebApp;
     tg.ready();
@@ -66,12 +69,29 @@ function initTelegramWebApp() {
       tg.setHeaderColor('#10131d');
       tg.setBackgroundColor('#0c0e14');
     } catch(e) {}
-    // Если есть данные пользователя Telegram, подставляем имя
-    if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-      const u = tg.initDataUnsafe.user;
-      STATE.name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'Атлет Telegram';
-      const nameInput = document.getElementById("athleteName");
-      if (nameInput) nameInput.value = STATE.name;
+
+    if (tg.initDataUnsafe) {
+      if (tg.initDataUnsafe.start_param) {
+        const param = tg.initDataUnsafe.start_param;
+        if (param.startsWith('chat_')) {
+          STATE.chatId = param.replace('chat_', '');
+        } else if (!isNaN(param)) {
+          STATE.chatId = param;
+        }
+      }
+      if (tg.initDataUnsafe.user) {
+        const u = tg.initDataUnsafe.user;
+        STATE.tgUser = u;
+        STATE.tgUserId = u.id;
+        STATE.name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'Атлет Telegram';
+        const nameInput = document.getElementById("athleteName");
+        if (nameInput) nameInput.value = STATE.name;
+
+        const badge = document.getElementById("tgUserBadge");
+        if (badge) {
+          badge.innerHTML = `<span>●</span> ${escapeHtml(u.first_name || 'Атлет')}`;
+        }
+      }
     }
   }
 }
@@ -87,9 +107,13 @@ function initTabs() {
   });
 }
 
+const SUB_TABS = ["tab-detector", "tab-duel", "tab-sos", "tab-quiz", "tab-rules"];
+
 function switchTab(tabId) {
+  const activeNavTarget = SUB_TABS.includes(tabId) ? "tab-more" : tabId;
+
   document.querySelectorAll(".tab-btn").forEach(b => {
-    b.classList.toggle("active", b.dataset.tab === tabId);
+    b.classList.toggle("active", b.dataset.tab === activeNavTarget);
   });
   document.querySelectorAll(".tab-pane").forEach(p => {
     p.classList.toggle("active", p.id === tabId);
@@ -99,7 +123,11 @@ function switchTab(tabId) {
   if (tabId === "tab-cert") {
     renderCertificateCanvas();
   }
+  if (tabId === "tab-top") {
+    fetchLeaderboard();
+  }
 }
+window.switchTab = switchTab;
 
 // Калькулятор
 function initCalculator() {
@@ -1469,80 +1497,168 @@ function renderDuelResult(duel) {
 }
 
 // =============================================================
-// УЛЬТИМАТИВНЫЙ ФАРШ: ЗАЛ СЛАВЫ (РЕЙТИНГ)
+// УЛЬТИМАТИВНЫЙ ФАРШ: ЗАЛ СЛАВЫ И ТОП ЧАТА (РЕЙТИНГ)
 // =============================================================
-async function initLeaderboard() {
-  await fetchLeaderboard();
+let currentTopMode = 'auto'; // 'chat' or 'global'
 
+window.switchTopMode = function(mode) {
+  currentTopMode = mode;
+  const btnChat = document.getElementById("btnTopChat");
+  const btnGlobal = document.getElementById("btnTopGlobal");
+  if (btnChat) btnChat.classList.toggle("active", mode === 'chat');
+  if (btnGlobal) btnGlobal.classList.toggle("active", mode === 'global');
+  fetchLeaderboard();
+};
+
+async function initLeaderboard() {
   const refreshBtn = document.getElementById("refreshLeaderboardBtn");
   if (refreshBtn) {
-    refreshBtn.addEventListener("click", fetchLeaderboard);
+    refreshBtn.addEventListener("click", () => fetchLeaderboard());
   }
 
-  const saveBtn = document.getElementById("saveToHallOfFameBtn");
-  if (saveBtn) {
-    saveBtn.addEventListener("click", async () => {
-      if (!STATE.currentResult) {
-        alert("Сначала рассчитайте норматив во вкладке «Нормативы»!");
-        return;
-      }
-      try {
-        const payload = {
-          name: STATE.name,
-          weight: STATE.weight,
-          gender: STATE.gender,
-          rank: STATE.currentResult.rank,
-          score: STATE.currentResult.score,
-          pure_ethanol_g: STATE.currentResult.pure_ethanol_g,
-          est_bac_promille: STATE.currentResult.est_bac_promille,
-          disciplines: STATE.currentResult.disciplines,
-          order_num: STATE.currentResult.order_num,
-          verified: STATE.detectorVerified
-        };
-        const resp = await fetch("/api/athlete/save", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const res = await resp.json();
-        alert(`🎉 Рекорд спортсмена ${res.name} (${res.score} очков) успешно внесен в Зал Славы!`);
-        fetchLeaderboard();
-      } catch (e) {
-        alert("Ошибка при сохранении рекорда: " + e);
-      }
-    });
+  // Если приложение запущено из группы, по умолчанию открываем топ чата
+  if (STATE.chatId) {
+    currentTopMode = 'chat';
+    const btnChat = document.getElementById("btnTopChat");
+    const btnGlobal = document.getElementById("btnTopGlobal");
+    if (btnChat) btnChat.classList.add("active");
+    if (btnGlobal) btnGlobal.classList.remove("active");
+  } else {
+    currentTopMode = 'global';
+    const btnChat = document.getElementById("btnTopChat");
+    const btnGlobal = document.getElementById("btnTopGlobal");
+    if (btnChat) btnChat.classList.remove("active");
+    if (btnGlobal) btnGlobal.classList.add("active");
   }
+
+  await fetchLeaderboard();
 }
 
 async function fetchLeaderboard() {
+  const cardsContainer = document.getElementById("leaderboardCards");
   const tbody = document.getElementById("leaderboardBody");
-  if (!tbody) return;
+  const banner = document.getElementById("chatInfoBanner");
+  const titleEl = document.getElementById("topSectionTitle");
+  const descEl = document.getElementById("topSectionDesc");
+  const badgeEl = document.getElementById("topBadge");
+
+  const isChat = (currentTopMode === 'chat') || (currentTopMode === 'auto' && Boolean(STATE.chatId));
+
+  let url = "/api/leaderboard?limit=25";
+  if (isChat && STATE.chatId) {
+    url += `&chat_id=${encodeURIComponent(STATE.chatId)}`;
+    if (titleEl) titleEl.textContent = "👥 Рейтинг участников чата";
+    if (descEl) descEl.textContent = "Официальный протокол застолья этого чата. Статистика растет от команд в группе.";
+    if (badgeEl) badgeEl.textContent = "ЧАТ";
+
+    try {
+      const chatResp = await fetch(`/api/chat/stats?chat_id=${encodeURIComponent(STATE.chatId)}`);
+      if (chatResp.ok) {
+        const chatData = await chatResp.json();
+        if (banner) {
+          banner.style.display = "block";
+          const bTitle = document.getElementById("chatBannerTitle");
+          const bMembers = document.getElementById("chatBannerMembers");
+          const bStats = document.getElementById("chatBannerStats");
+          if (bTitle) bTitle.textContent = `🏛️ ${chatData.title || 'Застольный чат'}`;
+          if (bMembers) bMembers.textContent = `👥 ${chatData.member_count || 0} участников`;
+          const bottles = Math.round(((chatData.total_ethanol_g || 0) / (500 * 0.40 * 0.789)) * 10) / 10;
+          if (bStats) {
+            bStats.innerHTML = `🍻 Подходов: <strong>${chatData.drinks_count || 0}</strong> • Чистого спирта: <strong>${chatData.total_ethanol_g || 0} г</strong> (~${bottles} бут. водки)`;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Chat stats error:", e);
+    }
+  } else {
+    if (banner) banner.style.display = "none";
+    if (titleEl) titleEl.textContent = "🌍 Официальный Зал Славы ВФЛ";
+    if (descEl) descEl.textContent = "Единый всероссийский реестр реальных атлетов. Только верифицированные рекорды!";
+    if (badgeEl) badgeEl.textContent = "ТОП РФ";
+  }
 
   try {
-    const resp = await fetch("/api/leaderboard?limit=20");
+    const resp = await fetch(url);
     const data = await resp.json();
 
-    tbody.innerHTML = "";
+    if (tbody) tbody.innerHTML = "";
+    if (cardsContainer) cardsContainer.innerHTML = "";
+
+    if (!Array.isArray(data) || data.length === 0) {
+      const emptyMsg = isChat
+        ? "В этом чате пока никто не зафиксировал подход! Напишите в группе <code>/drink пиво 500</code> или сдайте норматив!"
+        : "В Зале Славы пока нет атлетов. Сдайте норматив в Калькуляторе и станьте первым чемпионом!";
+      
+      if (cardsContainer) {
+        cardsContainer.innerHTML = `
+          <div class="empty-leaderboard-card">
+            <div style="font-size: 2.5rem; margin-bottom: 8px;">🍺</div>
+            <div style="font-weight: 700; color: #fff; margin-bottom: 4px;">Список пуст</div>
+            <div style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.4;">${emptyMsg}</div>
+          </div>
+        `;
+      }
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">${emptyMsg}</td></tr>`;
+      }
+      return;
+    }
+
+    const medals = ["🥇", "🥈", "🥉"];
+
     data.forEach((a, idx) => {
-      const tr = document.createElement("tr");
-      let medal = `${idx + 1}`;
-      if (idx === 0) medal = `<span class="leader-medal-1">🥇 1</span>`;
-      else if (idx === 1) medal = `<span class="leader-medal-2">🥈 2</span>`;
-      else if (idx === 2) medal = `<span class="leader-medal-3">🥉 3</span>`;
+      const pos = idx + 1;
+      const medal = idx < 3 ? medals[idx] : `${pos}`;
+      const name = a.user_name || a.name || 'Атлет';
+      const rankTitle = a.rank_title || 'Любитель';
+      const score = Math.round((a.score || 0) * 10) / 10;
+      const subInfo = (isChat && a.pure_ethanol_g !== undefined)
+        ? `Спирт: ${a.pure_ethanol_g || 0}г • ${a.drinks_count || 0} подходов`
+        : (a.discipline || 'Застольное многоборье');
+      const verified = a.verified ? ` <span title="Проверен Детектором" style="color: #10b981;">🛡️</span>` : '';
 
-      const shield = a.verified ? ` <span title="Проверен Детектором" style="color: #10b981;">🛡️</span>` : ``;
+      // Карточка для мобильных телефонов
+      if (cardsContainer) {
+        const card = document.createElement("div");
+        card.className = "athlete-card";
+        card.innerHTML = `
+          <div class="athlete-card-rank">${medal}</div>
+          <div class="athlete-card-info">
+            <div class="athlete-card-name">
+              <span>${escapeHtml(name)}</span>${verified}
+            </div>
+            <div class="athlete-card-sub">
+              <span style="color: #f59e0b; font-weight: 600;">${rankTitle}</span> • ${escapeHtml(subInfo)}
+            </div>
+          </div>
+          <div class="athlete-card-score">
+            <div class="athlete-card-pts">${score}</div>
+            <div class="athlete-card-pts-label">очков</div>
+          </div>
+        `;
+        cardsContainer.appendChild(card);
+      }
 
-      tr.innerHTML = `
-        <td>${medal}</td>
-        <td><strong>${a.name}</strong>${shield}</td>
-        <td>${a.rank_title}</td>
-        <td style="color: var(--gold-glow); font-weight: bold;">${a.score}</td>
-        <td style="font-size: 0.8rem; color: var(--text-muted);">${a.discipline || '-'}</td>
-      `;
-      tbody.appendChild(tr);
+      // Строка для десктопной таблицы
+      if (tbody) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${medal}</strong></td>
+          <td><strong>${escapeHtml(name)}</strong>${verified}</td>
+          <td>${rankTitle}</td>
+          <td style="color: var(--gold-glow); font-weight: bold;">${score}</td>
+          <td style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(subInfo)}</td>
+        `;
+        tbody.appendChild(tr);
+      }
     });
+
   } catch (e) {
-    console.error("Leaderboard fetch error:", e);
+    console.error("Leaderboard error:", e);
+    if (cardsContainer) {
+      cardsContainer.innerHTML = `<div class="empty-leaderboard-card" style="color: #f87171;">Ошибка загрузки рейтинга: ${e}</div>`;
+    }
   }
 }
 

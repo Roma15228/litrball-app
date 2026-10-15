@@ -208,12 +208,17 @@ def get_weight_category(w: float) -> str:
     return "Супертяжелый вес (Танк)"
 
 def get_font(size: int, bold: bool = False):
-    # Пытаемся найти подходящие ttf шрифты в Linux
-    candidates = [
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    local_fonts = [
+        os.path.join(base_dir, "static", "fonts", "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"),
+        os.path.join(base_dir, "fonts", "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf")
+    ]
+    # Пытаемся найти локальные или системные ttf шрифты в Linux
+    candidates = local_fonts + [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/google-noto/NotoSans-Bold.ttf" if bold else "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/google-noto/NotoSans-Bold.ttf" if bold else "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/liberation/LiberationSans-Regular.ttf"
     ]
     for path in candidates:
@@ -223,3 +228,4 @@ def get_font(size: int, bold: bool = False):
             except Exception:
                 pass
     return ImageFont.load_default()
+

@@ -108,6 +108,43 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         else:
             await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
 
+    # -------------------------------------------------------------
+    # ДОБАВЛЕНИЕ БОТА В ГРУППОВОЙ ЧАТ
+    # -------------------------------------------------------------
+    @dp.my_chat_member()
+    async def on_my_chat_member(event: types.ChatMemberUpdated):
+        chat = event.chat
+        if chat.type in ['group', 'supergroup']:
+            new_status = event.new_chat_member.status
+            if new_status in ["member", "administrator"]:
+                member_count = 0
+                try:
+                    member_count = await bot.get_chat_member_count(chat.id)
+                except Exception as e:
+                    logger.warning(f"Failed to get member count: {e}")
+                
+                database.track_or_update_chat(chat.id, chat.title or "Застольный чат", chat.type, member_count)
+                
+                welcome_kb = []
+                if WEBAPP_URL:
+                    welcome_kb.append([InlineKeyboardButton(text="📲 Открыть Mini App чата", web_app=types.WebAppInfo(url=f"{WEBAPP_URL}?chat_id={chat.id}"))])
+                welcome_kb.append([InlineKeyboardButton(text="🍻 Накатить пива (/drink)", callback_data="drink_act:beer:500:5.0")])
+                
+                greeting = (
+                    f"🏛️ **ВСЕРОССИЙСКАЯ ФЕДЕРАЦИЯ ЛИТРБОЛА (ВФЛ)**\n"
+                    f"Официальное региональное отделение открыто в чате **«{chat.title}»**!\n\n"
+                    f"👥 Спортсменов в составе: **{member_count}** человек.\n"
+                    f"📋 Начинаем официальный учет застольных подвигов и разрядов!\n\n"
+                    f"🏆 **Команды филиала:**\n"
+                    f"🍺 `/drink` [напиток] [мл] — Зафиксировать подход к снаряду (напр. `/drink пиво 500` или `/drink водка 50`)\n"
+                    f"🥇 `/top` — Таблица рекордов участников этого чата\n"
+                    f"📊 `/stats` — Общая статистика возлияний чата\n"
+                    f"⚔️ `/duel` — Вызов на дуэль (ответом на сообщение собутыльника)\n"
+                    f"🥂 `/toast` — Официальный тост от судейской коллегии\n"
+                    f"🪪 `/passport` — Спортивный паспорт ВФЛ"
+                )
+                await bot.send_message(chat.id, greeting, reply_markup=InlineKeyboardMarkup(inline_keyboard=welcome_kb), parse_mode="Markdown")
+
 
     # -------------------------------------------------------------
     # WEBAPP ОБРАБОТЧИК ДАННЫХ
@@ -274,7 +311,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         )
 
     # -------------------------------------------------------------
-    # ЗАЛ СЛАВЫ (РЕЙТИНГ АТЛЕТОВ)
+    # ЗАЛ СЛАВЫ / ТОП ЧАТА
     # -------------------------------------------------------------
     @dp.message(Command("top"))
     @dp.callback_query(F.data == "menu_top")
@@ -282,26 +319,237 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         if isinstance(event, types.CallbackQuery):
             await event.answer()
             msg = event.message
+            is_group = False
+            chat_id = msg.chat.id
+            chat_title = ""
         else:
             msg = event
+            is_group = msg.chat.type in ['group', 'supergroup']
+            chat_id = msg.chat.id
+            chat_title = msg.chat.title or "Чат"
 
-        leaders = database.get_leaderboard(limit=10)
-        lines = ["🏆 **ЗАЛ СЛАВЫ ФЕДЕРАЦИИ ЛИТРБОЛА (ТОП-10):**\n"]
+        if is_group:
+            try:
+                mc = await bot.get_chat_member_count(chat_id)
+                database.track_or_update_chat(chat_id, chat_title, msg.chat.type, mc)
+            except Exception:
+                pass
+
+            leaders = database.get_chat_leaderboard(chat_id, limit=10)
+            if not leaders:
+                text = (
+                    f"🏆 **РЕЙТИНГ АТЛЕТОВ ЧАТА «{chat_title}»**\n\n"
+                    f"В этом чате пока никто не накатил и не сдал норматив!\n"
+                    f"Будьте первым: напишите `/drink пиво 500` или откройте Mini App!"
+                )
+                kb_btns = []
+                if WEBAPP_URL:
+                    kb_btns.append([InlineKeyboardButton(text="📲 Открыть Mini App чата", web_app=types.WebAppInfo(url=f"{WEBAPP_URL}?chat_id={chat_id}"))])
+                await msg.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_btns), parse_mode="Markdown")
+                return
+
+            lines = [f"🏆 **РЕЙТИНГ АТЛЕТОВ ЧАТА «{chat_title}» (ТОП-10):**\n"]
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            for idx, a in enumerate(leaders):
+                m = medals[idx] if idx < len(medals) else "🏅"
+                uname = f"@{a['username']}" if a.get('username') else a['user_name']
+                lines.append(f"{m} **{a['user_name']}** ({uname}) — **{a['score']}** очков")
+                lines.append(f"   _{a['rank_title']} | Спирта: {a['pure_ethanol_g']}г | Подходов: {a['drinks_count']}_\n")
+
+            kb_btns = []
+            if WEBAPP_URL:
+                kb_btns.append([InlineKeyboardButton(text="📲 Открыть Mini App чата", web_app=types.WebAppInfo(url=f"{WEBAPP_URL}?chat_id={chat_id}"))])
+            await msg.answer("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_btns), parse_mode="Markdown")
+        else:
+            # Личный чат — глобальный Зал Славы (только реальные атлеты)
+            leaders = database.get_leaderboard(limit=10)
+            if not leaders:
+                text = (
+                    "🏆 **ЗАЛ СЛАВЫ ФЕДЕРАЦИИ ЛИТРБОЛА**\n\n"
+                    "В официальном Зале Славы пока нет атлетов.\n"
+                    "Сдайте норматив в Калькуляторе или Mini App и станьте первым чемпионом!"
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🧮 Сдать норматив прямо сейчас", callback_data="menu_calc")],
+                    [InlineKeyboardButton(text="« Главное меню", callback_data="menu_main")]
+                ])
+                await msg.answer(text, reply_markup=kb, parse_mode="Markdown")
+                return
+
+            lines = ["🏆 **ЗАЛ СЛАВЫ ФЕДЕРАЦИИ ЛИТРБОЛА (ТОП-10):**\n"]
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            for idx, a in enumerate(leaders):
+                m = medals[idx] if idx < len(medals) else "🏅"
+                check = "✓" if a.get('verified') else ""
+                lines.append(f"{m} **{a['name']}** {check} — **{a['score']}** очков")
+                lines.append(f"   _{a['rank_title']} | {a['discipline']}_\n")
+
+            lines.append("💡 *Галочка ✓ означает успешное прохождение Детектора Пиздежа.*")
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🧮 Попасть в Зал Славы (Сдать норматив)", callback_data="menu_calc")],
+                [InlineKeyboardButton(text="« Главное меню", callback_data="menu_main")]
+            ])
+            await msg.answer("\n".join(lines), reply_markup=kb, parse_mode="Markdown")
+
+    # -------------------------------------------------------------
+    # СТАТИСТИКА ЧАТА (/stats)
+    # -------------------------------------------------------------
+    @dp.message(Command("stats"))
+    async def cmd_stats(message: types.Message):
+        chat = message.chat
+        if chat.type in ['group', 'supergroup']:
+            try:
+                mc = await bot.get_chat_member_count(chat.id)
+                database.track_or_update_chat(chat.id, chat.title, chat.type, mc)
+            except Exception:
+                pass
+            stats = database.get_chat_stats(chat.id)
+            if not stats:
+                await message.answer("Статистика этого чата еще формируется. Напишите `/drink`!")
+                return
+            
+            vodka_bottles = round(stats['total_ethanol_g'] / (500 * 0.40 * 0.789), 1)
+            top = stats.get('top_athlete')
+            top_info = f"👑 Чемпион чата: **{top['user_name']}** ({top['rank_title']}, {top['score']} очков)" if top else "👑 Чемпион чата: пока не определен"
+
+            text = (
+                f"📊 **СВОДКА АЛКО-АКТИВНОСТИ ЧАТА «{stats['title']}»**\n\n"
+                f"👥 Всего людей в чате: **{stats['member_count']}** чел.\n"
+                f"🏋️ Зарегистрировано активных бойцов: **{stats['active_athletes_count']}**\n"
+                f"🍻 Всего подходов к снаряду: **{stats['drinks_count']}**\n"
+                f"🧪 Суммарный объем чистого спирта: **{stats['total_ethanol_g']} г**\n"
+                f"🍾 Эквивалент в водке (0.5л 40%): **~{vodka_bottles}** бутылок\n\n"
+                f"{top_info}\n\n"
+                f"💡 Чтобы зафиксировать напиток, используйте `/drink [напиток] [мл]`"
+            )
+            kb = []
+            if WEBAPP_URL:
+                kb.append([InlineKeyboardButton(text="📲 Открыть Mini App чата", web_app=types.WebAppInfo(url=f"{WEBAPP_URL}?chat_id={chat.id}"))])
+            await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="Markdown")
+        else:
+            await message.answer("📊 Команда `/stats` показывает сводку по чату. Добавьте бота в группу с друзьями!")
+
+    # -------------------------------------------------------------
+    # ФИКСАЦИЯ НАПИТКА (/drink)
+    # -------------------------------------------------------------
+    @dp.message(Command("drink"))
+    async def cmd_drink(message: types.Message):
+        user = message.from_user
+        chat = message.chat
+        text_args = message.text.split()[1:] if message.text else []
+
+        if len(text_args) == 0:
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🍺 Пиво 0.5л", callback_data="drink_act:beer:500:5.0"),
+                    InlineKeyboardButton(text="🍻 IPA 0.5л", callback_data="drink_act:ipa:500:6.8")
+                ],
+                [
+                    InlineKeyboardButton(text="🥃 Водка 50мл", callback_data="drink_act:vodka:50:40.0"),
+                    InlineKeyboardButton(text="🥃 Водка 100мл", callback_data="drink_act:vodka:100:40.0")
+                ],
+                [
+                    InlineKeyboardButton(text="🍷 Вино 150мл", callback_data="drink_act:wine:150:12.5"),
+                    InlineKeyboardButton(text="🥃 Виски 100мл", callback_data="drink_act:whiskey:100:40.0")
+                ],
+                [
+                    InlineKeyboardButton(text="🍹 Коктейль «Ёрш» 0.5л", callback_data="drink_act:ersh:500:12.0")
+                ]
+            ])
+            await message.answer(f"🍺 Гражданин {user.first_name}, выберите подход к снаряду:", reply_markup=kb)
+            return
+
+        raw_input = " ".join(text_args).lower()
+        if "водк" in raw_input:
+            drink_name, abv, volume_ml = "Водка", 40.0, 50.0
+        elif "пив" in raw_input or "пенн" in raw_input:
+            drink_name, abv, volume_ml = "Пиво", 5.0, 500.0
+        elif "вин" in raw_input:
+            drink_name, abv, volume_ml = "Вино", 12.5, 150.0
+        elif "виск" in raw_input or "коньяк" in raw_input:
+            drink_name, abv, volume_ml = "Виски/Коньяк", 40.0, 100.0
+        elif "сидр" in raw_input:
+            drink_name, abv, volume_ml = "Сидр", 5.5, 500.0
+        elif "текил" in raw_input or "ром" in raw_input:
+            drink_name, abv, volume_ml = "Текила/Ром", 40.0, 50.0
+        elif "ёрш" in raw_input or "ерш" in raw_input:
+            drink_name, abv, volume_ml = "Коктейль «Ёрш»", 12.0, 500.0
+        else:
+            drink_name, abv, volume_ml = text_args[0].capitalize(), 10.0, 300.0
+
+        for part in text_args:
+            if part.isdigit():
+                volume_ml = float(part)
+                break
+
+        res = database.record_chat_drink(
+            chat_id=chat.id,
+            tg_user_id=user.id,
+            user_name=user.full_name or user.first_name,
+            username=user.username,
+            drink_name=drink_name,
+            volume_ml=volume_ml,
+            abv=abv
+        )
+
+        referee_comments = [
+            "Судейская коллегия засчитала подход! Четкое прижатие бокала к губам.",
+            "Технично, уверенно, без проливаний! Спортивная форма на высоте.",
+            "Прекрасный темп! Главное — не забывать про плотную закуску.",
+            "ВАК фиксирует взятие веса! Движение в сторону звания Мастера Спорта."
+        ]
+        comment = random.choice(referee_comments)
+
+        resp_text = (
+            f"🍺 **ПОДХОД ЗАСЧИТАН!**\n\n"
+            f"👤 Атлет: **{res['user_name']}**\n"
+            f"🥃 Напиток: **{res['drink']}** ({res['volume_ml']} мл, {res['abv']}%)\n"
+            f"🧪 Чистый спирт: **+{res['pure_ethanol_g']} г** (Всего: **{res['user_total_ethanol']} г**)\n"
+            f"🎖️ Текущий разряд: **{res['user_rank']}**\n"
+            f"🏆 Очков в копилку: **{res['user_score']}**\n\n"
+            f"💬 _{comment}_"
+        )
+        await message.answer(resp_text, parse_mode="Markdown")
+
+    @dp.callback_query(F.data.startswith("drink_act:"))
+    async def cb_drink_action(callback: types.CallbackQuery):
+        await callback.answer("Подход зафиксирован!")
+        parts = callback.data.split(":")
+        d_type = parts[1]
+        volume_ml = float(parts[2])
+        abv = float(parts[3])
         
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-        for idx, a in enumerate(leaders):
-            m = medals[idx] if idx < len(medals) else "🏅"
-            check = "✓" if a.get('verified') else ""
-            lines.append(f"{m} **{a['name']}** {check} — **{a['score']}** очков")
-            lines.append(f"   _{a['rank_title']} | {a['discipline']}_\n")
+        name_map = {
+            "beer": "Светлое пиво",
+            "ipa": "Крафтовое IPA",
+            "vodka": "Водка",
+            "wine": "Красное вино",
+            "whiskey": "Виски/Коньяк",
+            "ersh": "Коктейль «Ёрш»"
+        }
+        drink_name = name_map.get(d_type, "Напиток")
+        user = callback.from_user
+        chat = callback.message.chat
 
-        lines.append("💡 *Галочка ✓ означает успешное прохождение Детектора Пиздежа.*")
+        res = database.record_chat_drink(
+            chat_id=chat.id,
+            tg_user_id=user.id,
+            user_name=user.full_name or user.first_name,
+            username=user.username,
+            drink_name=drink_name,
+            volume_ml=volume_ml,
+            abv=abv
+        )
 
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🧮 Попасть в Зал Славы (Сдать норматив)", callback_data="menu_calc")],
-            [InlineKeyboardButton(text="« Главное меню", callback_data="menu_main")]
-        ])
-        await msg.answer("\n".join(lines), reply_markup=kb, parse_mode="Markdown")
+        resp_text = (
+            f"🍺 **ПОДХОД ЗАСЧИТАН!**\n\n"
+            f"👤 Атлет: **{res['user_name']}**\n"
+            f"🥃 Напиток: **{res['drink']}** ({res['volume_ml']} мл, {res['abv']}%)\n"
+            f"🧪 Чистый спирт: **+{res['pure_ethanol_g']} г** (Всего: **{res['user_total_ethanol']} г**)\n"
+            f"🎖️ Текущий разряд: **{res['user_rank']}**\n"
+            f"🏆 Балл: **{res['user_score']}** очков"
+        )
+        await callback.message.answer(resp_text, parse_mode="Markdown")
 
     # -------------------------------------------------------------
     # ЗАСТОЛЬНАЯ ДУЭЛЬ (PvP)
@@ -313,19 +561,30 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         if isinstance(event, types.CallbackQuery):
             await event.answer()
             msg = event.message
+            reply_user = None
         else:
             msg = event
+            reply_user = msg.reply_to_message.from_user if (msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.id != user.id) else None
 
         athlete = database.get_athlete(tg_user_id=user.id)
         user_score = athlete['score'] if athlete else 95.0
         user_name = athlete['name'] if athlete else (user.first_name or "Атлет")
         user_rank = athlete['rank_title'] if athlete else "Любитель"
 
+        opponent_data = None
+        if reply_user:
+            opp_athlete = database.get_athlete(tg_user_id=reply_user.id)
+            opp_score = opp_athlete['score'] if opp_athlete else 90.0
+            opp_name = opp_athlete['name'] if opp_athlete else (reply_user.first_name or "Соперник")
+            opp_rank = opp_athlete['rank_title'] if opp_athlete else "Любитель"
+            opponent_data = {"name": opp_name, "score": opp_score, "rank_title": opp_rank}
+
         wait_msg = await msg.answer("⚔️ **Вызов на дуэль принят! Судьи наполняют бокалы...**")
         await asyncio.sleep(1.2)
 
         duel_res = database.create_or_play_duel(
-            creator_data={"name": user_name, "score": user_score, "rank_title": user_rank}
+            creator_data={"name": user_name, "score": user_score, "rank_title": user_rank},
+            opponent_data=opponent_data
         )
 
         duel_text = [
@@ -852,10 +1111,12 @@ async def main():
     try:
         commands = [
             types.BotCommand(command="start", description="🏆 Главное меню Федерации"),
-            types.BotCommand(command="passport", description="🪪 Мой Спортивный Паспорт"),
-            types.BotCommand(command="calc", description="🧮 Сдать норматив (Калькулятор)"),
-            types.BotCommand(command="top", description="🥇 Зал Славы (Топ атлетов)"),
+            types.BotCommand(command="drink", description="🍺 Зафиксировать напиток"),
+            types.BotCommand(command="top", description="🥇 Рейтинг чата / Зал Славы"),
+            types.BotCommand(command="stats", description="📊 Статистика застолья"),
             types.BotCommand(command="duel", description="⚔️ Застольная Дуэль (PvP)"),
+            types.BotCommand(command="passport", description="🪪 Спортивный Паспорт"),
+            types.BotCommand(command="calc", description="🧮 Сдать норматив (Калькулятор)"),
             types.BotCommand(command="toast", description="🥂 Генератор Тостов"),
             types.BotCommand(command="sos", description="🚑 Антипохмельный SOS")
         ]
@@ -874,7 +1135,7 @@ async def main():
 
     print(f"🚀 Бот Всероссийской Федерации Литрбола успешно запущен!")
     print(f"🤖 Ожидаем атлетов в Telegram...")
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 if __name__ == "__main__":
     try:

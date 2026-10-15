@@ -27,35 +27,28 @@
     </div>
   </header>
 
-  <!-- Вкладки навигации -->
-  <nav class="tabs-nav">
+  <!-- Вкладки навигации (5 эргономичных разделов) -->
+  <nav class="tabs-nav" id="mainNavBar">
     <div class="tabs-container">
       <button type="button" class="tab-btn active" data-tab="tab-calc">
-        🧮 <span>Нормативы</span>
-      </button>
-      <button type="button" class="tab-btn" data-tab="tab-detector">
-        🎯 <span>Детектор</span>
+        <span class="tab-icon">🧮</span>
+        <span class="tab-label">Норматив</span>
       </button>
       <button type="button" class="tab-btn" data-tab="tab-cert">
-        🪪 <span>Паспорт ВФЛ</span>
+        <span class="tab-icon">🪪</span>
+        <span class="tab-label">Паспорт</span>
       </button>
       <button type="button" class="tab-btn" data-tab="tab-bac">
-        🧪 <span>Трезвомер</span>
-      </button>
-      <button type="button" class="tab-btn" data-tab="tab-duel">
-        ⚔️ <span>Дуэли</span>
+        <span class="tab-icon">🧪</span>
+        <span class="tab-label">Трезвомер</span>
       </button>
       <button type="button" class="tab-btn" data-tab="tab-top">
-        🏆 <span>Зал Славы</span>
+        <span class="tab-icon">🏆</span>
+        <span class="tab-label">Рейтинг</span>
       </button>
-      <button type="button" class="tab-btn" data-tab="tab-sos">
-        🚑 <span>SOS и Тосты</span>
-      </button>
-      <button type="button" class="tab-btn" data-tab="tab-quiz">
-        🎓 <span>Экзамен</span>
-      </button>
-      <button type="button" class="tab-btn" data-tab="tab-rules">
-        📜 <span>Регламент</span>
+      <button type="button" class="tab-btn" data-tab="tab-more">
+        <span class="tab-icon">⚡</span>
+        <span class="tab-label">Ещё</span>
       </button>
     </div>
   </nav>
@@ -310,6 +303,7 @@
     <!-- ВКЛАДКА 2: ДЕТЕКТОР ПИЗДЕЖА -->
     <section id="tab-detector" class="tab-pane">
       <div class="card">
+        <button type="button" class="subtab-back-btn" onclick="switchTab('tab-more')">‹ Назад в сервисы</button>
         <div class="card-title">
           <span>Полевой Допинг-Контроль (Детектор Пиздежа)</span>
           <span class="badge" style="background: #3b82f6;">АНТИ-ЧИТ</span>
@@ -475,6 +469,7 @@
     <!-- ВКЛАДКА 5: ЗАСТОЛЬНАЯ ДУЭЛЬ (PvP) -->
     <section id="tab-duel" class="tab-pane">
       <div class="card">
+        <button type="button" class="subtab-back-btn" onclick="switchTab('tab-more')">‹ Назад в сервисы</button>
         <div class="card-title">
           <span>Застольная Дуэль (PvP Баттл)</span>
           <span class="badge" style="background: #ef4444;">АРЕНА</span>
@@ -512,18 +507,44 @@
       </div>
     </section>
 
-    <!-- ВКЛАДКА 6: ЗАЛ СЛАВЫ (РЕЙТИНГ) -->
+    <!-- ВКЛАДКА: РЕЙТИНГ (ТОП ЧАТА ИЛИ ЗАЛ СЛАВЫ) -->
     <section id="tab-top" class="tab-pane">
       <div class="card">
-        <div class="card-title">
-          <span>Зал Славы Федерации Литрбола</span>
-          <span class="badge" style="background: #f59e0b; color: #000;">ТОП-20</span>
+        <!-- Переключатель режима: Чат / Вся Федерация -->
+        <div class="top-segmented-control">
+          <button type="button" class="segment-btn active" id="btnTopChat" onclick="switchTopMode('chat')">
+            👥 Топ нашего чата
+          </button>
+          <button type="button" class="segment-btn" id="btnTopGlobal" onclick="switchTopMode('global')">
+            🌍 Зал Славы (РФ)
+          </button>
         </div>
-        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 15px;">
-          Официальный рейтинг атлетов России. Значок 🛡️ означает прохождение Детектора Пиздежа.
+
+        <!-- Инфо-баннер чата (если запущен из группы) -->
+        <div id="chatInfoBanner" class="chat-banner" style="display: none;">
+          <div class="chat-banner-header">
+            <span class="chat-banner-badge">РЕГИОНАЛЬНЫЙ ФИЛИАЛ</span>
+            <span id="chatBannerMembers" style="font-size: 0.8rem; color: #93c5fd;">👥 0 участников</span>
+          </div>
+          <h3 class="chat-banner-title" id="chatBannerTitle">Застолье</h3>
+          <div class="chat-banner-stats" id="chatBannerStats">Загрузка данных...</div>
+        </div>
+
+        <div class="card-title" style="margin-top: 10px;">
+          <span id="topSectionTitle">🏆 Турнирная таблица</span>
+          <span class="badge" id="topBadge" style="background: #f59e0b; color: #000;">ТОП</span>
+        </div>
+        <p id="topSectionDesc" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 15px;">
+          Официальный список бойцов. Значок 🛡️ означает прохождение Детектора Пиздежа.
         </p>
 
-        <div style="overflow-x: auto;">
+        <!-- Мобильные карточки участников (удобно для телефонов) -->
+        <div id="leaderboardCards" class="leaderboard-cards-list">
+          <!-- Карточки генерируются через JS -->
+        </div>
+
+        <!-- Таблица для широких экранов -->
+        <div class="desktop-table-wrapper" style="overflow-x: auto; margin-top: 10px;">
           <table class="ranks-table" id="leaderboardTable">
             <thead>
               <tr>
@@ -531,7 +552,7 @@
                 <th>Атлет</th>
                 <th>Разряд ЕЗСК</th>
                 <th>Очки</th>
-                <th>Дисциплина</th>
+                <th>Подвиг / Напиток</th>
               </tr>
             </thead>
             <tbody id="leaderboardBody">
@@ -540,14 +561,20 @@
           </table>
         </div>
 
-        <button type="button" class="btn-secondary" id="refreshLeaderboardBtn" style="margin-top: 15px;">
-          🔄 Обновить турнирную таблицу
-        </button>
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
+          <button type="button" class="btn-secondary" id="refreshLeaderboardBtn" style="flex: 1;">
+            🔄 Обновить
+          </button>
+          <button type="button" class="btn-primary" onclick="switchTab('tab-calc')" style="flex: 1;">
+            🧮 Сдать норматив
+          </button>
+        </div>
       </div>
     </section>
 
     <!-- ВКЛАДКА 7: SOS И ТОСТЫ -->
     <section id="tab-sos" class="tab-pane">
+      <button type="button" class="subtab-back-btn" onclick="switchTab('tab-more')">‹ Назад в сервисы</button>
       
       <!-- Антипохмельный протокол -->
       <div class="card" style="border-left: 4px solid #10b981;">
@@ -603,6 +630,7 @@
     <!-- ВКЛАДКА 8: ЭКЗАМЕН ВАК -->
     <section id="tab-quiz" class="tab-pane">
       <div class="card">
+        <button type="button" class="subtab-back-btn" onclick="switchTab('tab-more')">‹ Назад в сервисы</button>
         <div class="card-title">
           <span>Теоретический Экзамен Высшей Аттестационной Комиссии</span>
           <span class="badge">ТЕОРИЯ</span>
@@ -640,6 +668,7 @@
     <!-- ВКЛАДКА 9: РЕГЛАМЕНТ И НОРМАТИВЫ -->
     <section id="tab-rules" class="tab-pane">
       <div class="card">
+        <button type="button" class="subtab-back-btn" onclick="switchTab('tab-more')">‹ Назад в сервисы</button>
         <div class="card-title">
           <span>Таблица нормативов ЕЗСК</span>
           <span class="badge">Классификация</span>
@@ -674,6 +703,63 @@
           <li><strong>Заботься о товарище:</strong> видишь, что друг поплыл — подмени стопку на воду и закажи ему горячий суп.</li>
           <li><strong>Береги смартфон:</strong> после полуночи звонки бывшим категорически запрещены регламентом Международного союза.</li>
         </ul>
+      </div>
+    </section>
+
+    <!-- ВКЛАДКА 5: ЕЩЁ / СЕРВИСЫ И ИСПЫТАНИЯ -->
+    <section id="tab-more" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Спортивные сервисы и испытания</span>
+          <span class="badge" style="background: var(--gold-primary); color: #000;">ВФЛ ХАБ</span>
+        </div>
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 20px;">
+          Все официальные протоколы, дуэли и спасательные модули Федерации в одном месте:
+        </p>
+
+        <div class="hub-grid">
+          <div class="hub-card" onclick="switchTab('tab-detector')">
+            <div class="hub-icon">🎯</div>
+            <div class="hub-title">Детектор Пиздежа</div>
+            <div class="hub-desc">Полевой допинг-контроль: алкогольная касса, тремор рук и нейросеть ВАК.</div>
+            <div class="hub-arrow">Пройти проверку ›</div>
+          </div>
+
+          <div class="hub-card" onclick="switchTab('tab-duel')">
+            <div class="hub-icon">⚔️</div>
+            <div class="hub-title">Застольная Дуэль (PvP)</div>
+            <div class="hub-desc">Сразитесь с соперником в 3 раунда на стойкость, чистоту бокала и силу тостов.</div>
+            <div class="hub-arrow">Бросить вызов ›</div>
+          </div>
+
+          <div class="hub-card" onclick="switchTab('tab-sos')">
+            <div class="hub-icon">🚑</div>
+            <div class="hub-title">Антипохмельный SOS</div>
+            <div class="hub-desc">Почасовой таймлайн спасения организма + кнопка симуляции срочного звонка шефа.</div>
+            <div class="hub-arrow">План реанимации ›</div>
+          </div>
+
+          <div class="hub-card" onclick="switchTab('tab-sos')">
+            <div class="hub-icon">🥂</div>
+            <div class="hub-title">Генератор Тостов</div>
+            <div class="hub-desc">Спартанские, юмористические и философские тосты от судейской коллегии.</div>
+            <div class="hub-arrow">Выбрать тост ›</div>
+          </div>
+
+          <div class="hub-card" onclick="switchTab('tab-quiz')">
+            <div class="hub-icon">🎓</div>
+            <div class="hub-title">Экзамен ВАК (Теория)</div>
+            <div class="hub-desc">10 каверзных вопросов на знание регламента, традиций и биохимии застолья.</div>
+            <div class="hub-arrow">Сдать экзамен ›</div>
+          </div>
+
+          <div class="hub-card" onclick="switchTab('tab-rules')">
+            <div class="hub-icon">📜</div>
+            <div class="hub-title">Таблица разрядов ЕЗСК</div>
+            <div class="hub-desc">Официальная классификация: нормативы от Юношеского до Заслуженного Мастера.</div>
+            <div class="hub-arrow">Смотреть нормативы ›</div>
+          </div>
+        </div>
       </div>
     </section>
 

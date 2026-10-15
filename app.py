@@ -416,7 +416,27 @@ class LitrballHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(database.ACHIEVEMENTS_LIST)
         elif path == '/api/leaderboard':
             limit = int(query.get('limit', [20])[0])
-            self.send_json(database.get_leaderboard(limit))
+            chat_id = query.get('chat_id', [None])[0]
+            if chat_id:
+                try:
+                    self.send_json(database.get_chat_leaderboard(int(chat_id), limit))
+                except Exception as e:
+                    self.send_json({"error": str(e)}, status=400)
+            else:
+                self.send_json(database.get_leaderboard(limit))
+        elif path == '/api/chat/stats':
+            chat_id = query.get('chat_id', [None])[0]
+            if chat_id:
+                try:
+                    res = database.get_chat_stats(int(chat_id))
+                    if res:
+                        self.send_json(res)
+                    else:
+                        self.send_json({"error": "Chat not found"}, status=404)
+                except Exception as e:
+                    self.send_json({"error": str(e)}, status=400)
+            else:
+                self.send_json({"error": "chat_id parameter required"}, status=400)
         elif path == '/api/athlete':
             tg_id = int(query['tg_id'][0]) if 'tg_id' in query else None
             athlete_id = int(query['id'][0]) if 'id' in query else None
@@ -550,6 +570,19 @@ class LitrballHandler(http.server.SimpleHTTPRequestHandler):
                     "stage_desc": stage_desc,
                     "stage_color": stage_color
                 })
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=400)
+        elif path == '/api/chat/drink':
+            try:
+                chat_id = int(data.get('chat_id'))
+                tg_user_id = int(data.get('tg_user_id'))
+                user_name = data.get('user_name', 'Атлет')
+                username = data.get('username')
+                drink_name = data.get('drink_name', 'Пиво')
+                volume_ml = float(data.get('volume_ml', 500))
+                abv = float(data.get('abv', 5.0))
+                res = database.record_chat_drink(chat_id, tg_user_id, user_name, username, drink_name, volume_ml, abv)
+                self.send_json(res)
             except Exception as e:
                 self.send_json({"error": str(e)}, status=400)
         else:
