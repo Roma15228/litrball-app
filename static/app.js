@@ -151,7 +151,7 @@ window.switchTab = switchTab;
 // Калькулятор
 function initCalculator() {
   // Быстрые кнопки добавления напитков
-  const quickGrid = document.getElementById("quickDrinksGrid");
+  const quickGrid = document.getElementById("quickDrinksGrid") || document.getElementById("presetButtons");
   if (quickGrid) {
     quickGrid.innerHTML = "";
     DRINK_PRESETS.forEach(preset => {
@@ -163,13 +163,18 @@ function initCalculator() {
         <span class="title">${preset.name}</span>
         <span class="sub">${preset.volume_ml} мл • ${preset.abv}%</span>
       `;
-      btn.addEventListener("click", () => addDrink(preset));
+      btn.addEventListener("click", () => {
+        addDrink(preset);
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+          try { window.Telegram.WebApp.HapticFeedback.impactOccurred("light"); } catch(e) {}
+        }
+      });
       quickGrid.appendChild(btn);
     });
   }
 
   // Ползунок времени
-  const hoursSlider = document.getElementById("hoursSlider");
+  const hoursSlider = document.getElementById("hoursSlider") || document.getElementById("hoursInput");
   const hoursVal = document.getElementById("hoursVal");
   if (hoursSlider && hoursVal) {
     hoursSlider.addEventListener("input", (e) => {
@@ -193,15 +198,55 @@ function initCalculator() {
     });
   });
 
-  // Кнопка добавления кастомного напитка
-  const customBtn = document.getElementById("addCustomDrinkBtn");
-  if (customBtn) {
-    customBtn.addEventListener("click", () => {
-      const name = document.getElementById("customDrinkName").value.trim() || "Специальный снаряд";
-      const vol = parseFloat(document.getElementById("customDrinkVol").value) || 250;
-      const abv = parseFloat(document.getElementById("customDrinkAbv").value) || 10;
+  // Кнопка и форма добавления авторского напитка
+  const toggleCustomBtn = document.getElementById("toggleCustomDrinkBtn") || document.getElementById("addCustomDrinkBtn");
+  const customForm = document.getElementById("customDrinkForm");
+  const saveCustomBtn = document.getElementById("saveCustomDrinkBtn");
+  const cancelCustomBtn = document.getElementById("cancelCustomDrinkBtn");
+
+  if (toggleCustomBtn && customForm) {
+    toggleCustomBtn.addEventListener("click", () => {
+      const isHidden = customForm.style.display === "none" || !customForm.style.display;
+      customForm.style.display = isHidden ? "block" : "none";
+      if (isHidden) {
+        document.getElementById("customDrinkName")?.focus();
+      }
+    });
+  }
+
+  if (cancelCustomBtn && customForm) {
+    cancelCustomBtn.addEventListener("click", () => {
+      customForm.style.display = "none";
+    });
+  }
+
+  if (saveCustomBtn) {
+    saveCustomBtn.addEventListener("click", () => {
+      const nameInput = document.getElementById("customDrinkName");
+      const volInput = document.getElementById("customDrinkVol");
+      const abvInput = document.getElementById("customDrinkAbv");
+
+      const name = (nameInput && nameInput.value.trim()) || "Авторский коктейль";
+      const vol = (volInput && parseFloat(volInput.value)) || 250;
+      const abv = (abvInput && parseFloat(abvInput.value)) || 12;
+
       addDrink({ name, volume_ml: vol, abv, icon: "🍸" });
-      document.getElementById("customDrinkName").value = "";
+      if (nameInput) nameInput.value = "";
+      if (customForm) customForm.style.display = "none";
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+        try { window.Telegram.WebApp.HapticFeedback.notificationOccurred("success"); } catch(e) {}
+      }
+    });
+  }
+
+  // Очистка всех выбранных напитков
+  const clearBtn = document.getElementById("clearDrinksBtn");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      if (confirm("Очистить все выбранные снаряды из протокола?")) {
+        STATE.drinks = [];
+        renderDrinksList();
+      }
     });
   }
 
@@ -283,33 +328,60 @@ function renderDrinksList() {
   const listEl = document.getElementById("drinksList");
   if (!listEl) return;
 
-  if (STATE.drinks.length === 0) {
+  const totalVolEl = document.getElementById("totalVolumeVal");
+  const totalEthEl = document.getElementById("totalEthanolVal");
+  const summaryBox = document.getElementById("drinksTotalSummary");
+
+  if (!STATE.drinks || STATE.drinks.length === 0) {
     listEl.innerHTML = `
-      <div style="text-align:center; padding:15px; color:var(--text-muted); font-size:0.85rem;">
-        Пока снаряды не выбраны. Нажмите на напитки выше, чтобы добавить подходы.
+      <div style="text-align:center; padding:18px 12px; color:var(--text-muted); font-size:0.85rem; background: var(--bg-card); border-radius: 8px; border: 1px dashed var(--border-color);">
+        🍺 Снаряды не выбраны. Нажмите на кнопки напитков выше, чтобы сформировать арсенал.
       </div>
     `;
+    if (summaryBox) summaryBox.style.display = "none";
+    if (typeof updateBacDisplay === "function") {
+      updateBacDisplay(0);
+    }
     return;
   }
 
+  if (summaryBox) summaryBox.style.display = "flex";
+
+  let totalVol = 0;
+  let totalEthanolG = 0;
+
   listEl.innerHTML = "";
   STATE.drinks.forEach((drink, index) => {
+    const itemVol = (drink.volume_ml || 0) * (drink.count || 1);
+    const itemEth = itemVol * ((drink.abv || 0) / 100.0) * 0.789;
+    totalVol += itemVol;
+    totalEthanolG += itemEth;
+
     const item = document.createElement("div");
     item.className = "drink-item";
     item.innerHTML = `
       <div class="drink-item-info">
-        <span class="drink-item-name">${drink.icon || "🍺"} ${drink.name}</span>
-        <span class="drink-item-sub">${drink.volume_ml} мл • ${drink.abv}% об. (${drink.volume_ml * drink.count} мл всего)</span>
+        <span class="drink-item-name">${drink.icon || "🍺"} ${escapeHtml(drink.name)}</span>
+        <span class="drink-item-sub">${drink.volume_ml} мл • ${drink.abv}% об. (${itemVol} мл суммарно)</span>
       </div>
       <div class="drink-item-actions">
-        <button type="button" class="counter-btn" onclick="modifyDrinkCount(${index}, -1)">-</button>
-        <span style="font-weight:700; min-width:20px; text-align:center;">${drink.count}</span>
-        <button type="button" class="counter-btn" onclick="modifyDrinkCount(${index}, 1)">+</button>
+        <button type="button" class="counter-btn" aria-label="Уменьшить" onclick="modifyDrinkCount(${index}, -1)">−</button>
+        <span class="drink-count-badge">${drink.count}</span>
+        <button type="button" class="counter-btn" aria-label="Увеличить" onclick="modifyDrinkCount(${index}, 1)">+</button>
         <button type="button" class="remove-btn" title="Удалить" onclick="removeDrink(${index})">✕</button>
       </div>
     `;
     listEl.appendChild(item);
   });
+
+  if (totalVolEl) totalVolEl.textContent = `${Math.round(totalVol)} мл`;
+  if (totalEthEl) totalEthEl.textContent = `${Math.round(totalEthanolG * 10) / 10} г`;
+
+  // Синхронизируем BAC трезвомер
+  if (typeof updateBacDisplay === "function") {
+    const slider = document.getElementById("bacElapsedSlider");
+    updateBacDisplay(slider ? parseFloat(slider.value) : 0);
+  }
 }
 
 window.modifyDrinkCount = function(index, delta) {
@@ -319,6 +391,9 @@ window.modifyDrinkCount = function(index, delta) {
       STATE.drinks.splice(index, 1);
     }
     renderDrinksList();
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+      try { window.Telegram.WebApp.HapticFeedback.impactOccurred("light"); } catch(e) {}
+    }
   }
 };
 
@@ -326,6 +401,9 @@ window.removeDrink = function(index) {
   if (STATE.drinks[index]) {
     STATE.drinks.splice(index, 1);
     renderDrinksList();
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+      try { window.Telegram.WebApp.HapticFeedback.notificationOccurred("warning"); } catch(e) {}
+    }
   }
 };
 
@@ -347,10 +425,10 @@ async function performCalculation() {
   }
 
   // Штрафы
-  STATE.penalties.vomited = document.getElementById("penVomit")?.checked || false;
-  STATE.penalties.fell_asleep = document.getElementById("penSleep")?.checked || false;
-  STATE.penalties.called_ex = document.getElementById("penEx")?.checked || false;
-  STATE.penalties.lost_items = document.getElementById("penLost")?.checked || false;
+  STATE.penalties.vomited = (document.getElementById("penVomited") || document.getElementById("penVomit"))?.checked || false;
+  STATE.penalties.fell_asleep = (document.getElementById("penFellAsleep") || document.getElementById("penSleep"))?.checked || false;
+  STATE.penalties.called_ex = (document.getElementById("penCalledEx") || document.getElementById("penEx"))?.checked || false;
+  STATE.penalties.lost_items = (document.getElementById("penLostItems") || document.getElementById("penLost"))?.checked || false;
 
   const payload = {
     name: STATE.name,
@@ -621,7 +699,13 @@ window.restartQuiz = function() {
 };
 
 function escapeHtml(str) {
-  return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ==========================================

@@ -126,33 +126,60 @@
         </div>
         
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
-          Быстрый выбор дисциплин:
+          Быстрый выбор дисциплин (нажмите для добавления снаряда):
         </p>
-        <div class="preset-buttons" id="presetButtons">
+        
+        <!-- Сетка пресетов напитков -->
+        <div class="quick-drinks-grid" id="quickDrinksGrid">
           <!-- Генерируются JS -->
         </div>
 
-        <!-- Таблица выбранных напитков -->
-        <div class="drinks-table-container">
-          <table class="drinks-table" id="drinksTable">
-            <thead>
-              <tr>
-                <th>Дисциплина</th>
-                <th>Объем (мл)</th>
-                <th>Крепость %</th>
-                <th>Кол-во</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="drinksList">
-              <!-- Строки напитков -->
-            </tbody>
-          </table>
+        <!-- Добавление авторского коктейля / напитка -->
+        <div style="margin: 12px 0 16px;">
+          <button type="button" class="btn-secondary" id="toggleCustomDrinkBtn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span>➕</span> <span>Добавить авторский напиток / коктейль</span>
+          </button>
+          
+          <div id="customDrinkForm" style="display: none; background: var(--bg-card-hover); border: 1px dashed var(--gold-primary); border-radius: 10px; padding: 14px; margin-top: 10px;">
+            <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 10px; color: var(--gold-glow);">🧪 Параметры авторского напитка:</div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <div class="form-group" style="margin: 0;">
+                <label for="customDrinkName" style="font-size: 0.78rem;">Название снаряда / коктейля</label>
+                <input type="text" id="customDrinkName" class="form-input" placeholder="Напр: Самогон деда / Джин-тоник" style="padding: 8px 10px;">
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="form-group" style="margin: 0;">
+                  <label for="customDrinkVol" style="font-size: 0.78rem;">Объем (мл)</label>
+                  <input type="number" id="customDrinkVol" class="form-input" value="100" min="10" max="3000" step="10" style="padding: 8px 10px;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label for="customDrinkAbv" style="font-size: 0.78rem;">Крепость (% об.)</label>
+                  <input type="number" id="customDrinkAbv" class="form-input" value="40" min="0.5" max="96" step="0.5" style="padding: 8px 10px;">
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end;">
+              <button type="button" class="btn-secondary" id="cancelCustomDrinkBtn" style="padding: 6px 14px; font-size: 0.82rem;">Отмена</button>
+              <button type="button" class="btn-primary" id="saveCustomDrinkBtn" style="padding: 6px 16px; font-size: 0.82rem;">Внести в протокол</button>
+            </div>
+          </div>
         </div>
 
-        <button type="button" class="btn-secondary" id="addCustomDrinkBtn" style="margin-top: 10px;">
-          ➕ Добавить авторский напиток / коктейль
-        </button>
+        <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span>Выбранные дисциплины в протоколе:</span>
+          <button type="button" id="clearDrinksBtn" style="background: none; border: none; color: #ef4444; font-size: 0.75rem; cursor: pointer; text-decoration: underline;">Очистить всё</button>
+        </div>
+
+        <!-- Список выбранных напитков -->
+        <div class="drinks-list" id="drinksList">
+          <!-- Генерируются JS -->
+        </div>
+
+        <!-- Сводная плашка арсенала -->
+        <div id="drinksTotalSummary" style="display: flex; justify-content: space-between; align-items: center; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 10px 14px; margin-top: 10px; font-size: 0.85rem;">
+          <div>Общий объем: <strong id="totalVolumeVal" style="color: var(--gold-glow);">0 мл</strong></div>
+          <div>Чистый этанол: <strong id="totalEthanolVal" style="color: #f87171;">0 г</strong></div>
+        </div>
       </div>
 
       <!-- Закуска и темп -->

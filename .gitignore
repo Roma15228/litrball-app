@@ -5,3 +5,4 @@ __pycache__/
 litrball.db
 static/uploads/rooms/*
 !static/uploads/rooms/.gitkeep
+screen_*.png

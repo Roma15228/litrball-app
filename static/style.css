@@ -242,7 +242,7 @@ html, body {
 /* Quick Drinks Grid */
 .quick-drinks-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -259,22 +259,32 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .quick-drink-btn:hover {
-  background: rgba(245, 158, 11, 0.12);
+  background: rgba(245, 158, 11, 0.15);
   border-color: var(--gold-primary);
   transform: translateY(-2px);
 }
 
+.quick-drink-btn:active {
+  transform: scale(0.96);
+  background: rgba(245, 158, 11, 0.25);
+  border-color: var(--gold-glow);
+}
+
 .quick-drink-btn .icon {
-  font-size: 1.6rem;
+  font-size: 1.7rem;
 }
 
 .quick-drink-btn .title {
   font-size: 0.85rem;
   font-weight: 600;
+  line-height: 1.2;
 }
 
 .quick-drink-btn .sub {
@@ -287,7 +297,7 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .drink-item {
@@ -298,16 +308,23 @@ html, body {
   padding: 10px 14px;
   border-radius: 8px;
   border-left: 3px solid var(--gold-primary);
+  transition: background 0.15s;
+}
+
+.drink-item:hover {
+  background: var(--bg-card-hover);
 }
 
 .drink-item-info {
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .drink-item-name {
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
+  color: #fff;
 }
 
 .drink-item-sub {
@@ -318,25 +335,47 @@ html, body {
 .drink-item-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+.drink-count-badge {
+  font-weight: 700;
+  min-width: 26px;
+  text-align: center;
+  font-size: 1rem;
+  color: var(--gold-glow);
 }
 
 .counter-btn {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   color: var(--text-main);
-  width: 28px;
-  height: 28px;
+  min-width: 32px;
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
   cursor: pointer;
   font-weight: bold;
+  font-size: 1.15rem;
+  line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease;
 }
 
 .counter-btn:hover {
   border-color: var(--gold-primary);
+  color: var(--gold-primary);
+}
+
+.counter-btn:active {
+  background: var(--gold-primary);
+  color: #000;
+  transform: scale(0.92);
 }
 
 .remove-btn {
@@ -344,8 +383,21 @@ html, body {
   border: none;
   color: var(--accent-red);
   cursor: pointer;
-  padding: 4px 8px;
-  font-size: 1.1rem;
+  padding: 6px 10px;
+  font-size: 1.15rem;
+  border-radius: 6px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove-btn:hover,
+.remove-btn:active {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
 }
 
 /* Radio Cards (Snack & Experience) */
