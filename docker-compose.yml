@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  litrball:
+    build: .
+    container_name: litrball_app
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - WEBAPP_URL=${WEBAPP_URL}
+    volumes:
+      - ./litrball.db:/app/litrball.db

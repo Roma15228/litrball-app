@@ -1,0 +1,1737 @@
+/**
+ * Всероссийская Федерация Литрбола (ВФЛ) — Frontend Application
+ */
+
+const STATE = {
+  name: "Атлетов Иван",
+  gender: "m",
+  weight: 80,
+  experience: "amateur",
+  drinks: [
+    { name: "Светлое пиво", volume_ml: 500, abv: 5.0, count: 2, icon: "🍺" }
+  ],
+  hours: 3.0,
+  snack: "medium",
+  penalties: {
+    vomited: false,
+    fell_asleep: false,
+    called_ex: false,
+    lost_items: false
+  },
+  currentResult: null,
+  quizQuestions: [],
+  quizCurrentIdx: 0,
+  quizTotalScore: 0,
+  selectedAvatar: "barman",
+  customPhoto: null,
+  detectorVerified: false,
+  detectorScore: 0
+};
+
+// Пресеты напитков
+const DRINK_PRESETS = [
+  { name: "Светлое пиво", volume_ml: 500, abv: 4.8, icon: "🍺" },
+  { name: "Крафтовое IPA", volume_ml: 500, abv: 6.8, icon: "🍻" },
+  { name: "Стопка водки", volume_ml: 50, abv: 40.0, icon: "🥃" },
+  { name: "Бокал вина", volume_ml: 150, abv: 12.5, icon: "🍷" },
+  { name: "Виски / Коньяк", volume_ml: 100, abv: 40.0, icon: "🥃" },
+  { name: "Коктейль «Ёрш»", volume_ml: 500, abv: 12.0, icon: "🍹" },
+  { name: "Шот текилы", volume_ml: 50, abv: 38.0, icon: "🍋" },
+  { name: "Настойка деда", volume_ml: 50, abv: 45.0, icon: "🧪" }
+];
+
+// Инициализация при загрузке страницы
+document.addEventListener("DOMContentLoaded", () => {
+  initTelegramWebApp();
+  initTabs();
+  initCalculator();
+  initQuiz();
+  initDetector();
+  renderDrinksList();
+  fetchRanksTable();
+  drawDefaultCertificate();
+  initBacTracker();
+  initDuels();
+  initLeaderboard();
+  initSosAndToasts();
+});
+
+// Telegram WebApp адаптация
+function initTelegramWebApp() {
+  if (window.Telegram && window.Telegram.WebApp) {
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
+    try {
+      tg.setHeaderColor('#10131d');
+      tg.setBackgroundColor('#0c0e14');
+    } catch(e) {}
+    // Если есть данные пользователя Telegram, подставляем имя
+    if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+      const u = tg.initDataUnsafe.user;
+      STATE.name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'Атлет Telegram';
+      const nameInput = document.getElementById("athleteName");
+      if (nameInput) nameInput.value = STATE.name;
+    }
+  }
+}
+
+// Навигация по вкладкам
+function initTabs() {
+  const tabBtns = document.querySelectorAll(".tab-btn");
+  tabBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.tab;
+      switchTab(target);
+    });
+  });
+}
+
+function switchTab(tabId) {
+  document.querySelectorAll(".tab-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.tab === tabId);
+  });
+  document.querySelectorAll(".tab-pane").forEach(p => {
+    p.classList.toggle("active", p.id === tabId);
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  if (tabId === "tab-cert") {
+    renderCertificateCanvas();
+  }
+}
+
+// Калькулятор
+function initCalculator() {
+  // Быстрые кнопки добавления напитков
+  const quickGrid = document.getElementById("quickDrinksGrid");
+  if (quickGrid) {
+    quickGrid.innerHTML = "";
+    DRINK_PRESETS.forEach(preset => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "quick-drink-btn";
+      btn.innerHTML = `
+        <span class="icon">${preset.icon}</span>
+        <span class="title">${preset.name}</span>
+        <span class="sub">${preset.volume_ml} мл • ${preset.abv}%</span>
+      `;
+      btn.addEventListener("click", () => addDrink(preset));
+      quickGrid.appendChild(btn);
+    });
+  }
+
+  // Ползунок времени
+  const hoursSlider = document.getElementById("hoursSlider");
+  const hoursVal = document.getElementById("hoursVal");
+  if (hoursSlider && hoursVal) {
+    hoursSlider.addEventListener("input", (e) => {
+      STATE.hours = parseFloat(e.target.value);
+      hoursVal.textContent = `${STATE.hours} ч.`;
+    });
+  }
+
+  // Слушатели радиокнопок опыта и закуски
+  document.querySelectorAll('input[name="snack"]').forEach(r => {
+    r.addEventListener("change", (e) => {
+      STATE.snack = e.target.value;
+      updateOptionCardStyles('snack');
+    });
+  });
+
+  document.querySelectorAll('input[name="experience"]').forEach(r => {
+    r.addEventListener("change", (e) => {
+      STATE.experience = e.target.value;
+      updateOptionCardStyles('experience');
+    });
+  });
+
+  // Кнопка добавления кастомного напитка
+  const customBtn = document.getElementById("addCustomDrinkBtn");
+  if (customBtn) {
+    customBtn.addEventListener("click", () => {
+      const name = document.getElementById("customDrinkName").value.trim() || "Специальный снаряд";
+      const vol = parseFloat(document.getElementById("customDrinkVol").value) || 250;
+      const abv = parseFloat(document.getElementById("customDrinkAbv").value) || 10;
+      addDrink({ name, volume_ml: vol, abv, icon: "🍸" });
+      document.getElementById("customDrinkName").value = "";
+    });
+  }
+
+  // Кнопка расчета норматива
+  const calcBtn = document.getElementById("calculateBtn");
+  if (calcBtn) {
+    calcBtn.addEventListener("click", performCalculation);
+  }
+
+  // Загрузка своего фото для удостоверения
+  const photoInput = document.getElementById("customPhotoInput");
+  if (photoInput) {
+    photoInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            STATE.customPhoto = img;
+            renderCertificateCanvas();
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  }
+
+  // Выбор аватара
+  const avatarSelect = document.getElementById("avatarSelect");
+  if (avatarSelect) {
+    avatarSelect.addEventListener("change", (e) => {
+      STATE.selectedAvatar = e.target.value;
+      STATE.customPhoto = null;
+      renderCertificateCanvas();
+    });
+  }
+
+  // Скачивание удостоверения
+  const downloadBtn = document.getElementById("downloadCertBtn");
+  if (downloadBtn) {
+    downloadBtn.addEventListener("click", downloadCertificate);
+  }
+
+  // Поделиться удостоверением
+  const shareBtn = document.getElementById("shareCertBtn");
+  if (shareBtn) {
+    shareBtn.addEventListener("click", shareCertificate);
+  }
+}
+
+function updateOptionCardStyles(groupName) {
+  document.querySelectorAll(`input[name="${groupName}"]`).forEach(input => {
+    const card = input.closest(".option-card");
+    if (card) {
+      card.classList.toggle("selected", input.checked);
+    }
+  });
+}
+
+function addDrink(preset) {
+  const existing = STATE.drinks.find(d => d.name === preset.name && d.abv === preset.abv && d.volume_ml === preset.volume_ml);
+  if (existing) {
+    existing.count += 1;
+  } else {
+    STATE.drinks.push({
+      name: preset.name,
+      volume_ml: preset.volume_ml,
+      abv: preset.abv,
+      icon: preset.icon || "🍺",
+      count: 1
+    });
+  }
+  renderDrinksList();
+}
+
+function renderDrinksList() {
+  const listEl = document.getElementById("drinksList");
+  if (!listEl) return;
+
+  if (STATE.drinks.length === 0) {
+    listEl.innerHTML = `
+      <div style="text-align:center; padding:15px; color:var(--text-muted); font-size:0.85rem;">
+        Пока снаряды не выбраны. Нажмите на напитки выше, чтобы добавить подходы.
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = "";
+  STATE.drinks.forEach((drink, index) => {
+    const item = document.createElement("div");
+    item.className = "drink-item";
+    item.innerHTML = `
+      <div class="drink-item-info">
+        <span class="drink-item-name">${drink.icon || "🍺"} ${drink.name}</span>
+        <span class="drink-item-sub">${drink.volume_ml} мл • ${drink.abv}% об. (${drink.volume_ml * drink.count} мл всего)</span>
+      </div>
+      <div class="drink-item-actions">
+        <button type="button" class="counter-btn" onclick="modifyDrinkCount(${index}, -1)">-</button>
+        <span style="font-weight:700; min-width:20px; text-align:center;">${drink.count}</span>
+        <button type="button" class="counter-btn" onclick="modifyDrinkCount(${index}, 1)">+</button>
+        <button type="button" class="remove-btn" title="Удалить" onclick="removeDrink(${index})">✕</button>
+      </div>
+    `;
+    listEl.appendChild(item);
+  });
+}
+
+window.modifyDrinkCount = function(index, delta) {
+  if (STATE.drinks[index]) {
+    STATE.drinks[index].count += delta;
+    if (STATE.drinks[index].count <= 0) {
+      STATE.drinks.splice(index, 1);
+    }
+    renderDrinksList();
+  }
+};
+
+window.removeDrink = function(index) {
+  if (STATE.drinks[index]) {
+    STATE.drinks.splice(index, 1);
+    renderDrinksList();
+  }
+};
+
+// Выполнение расчета
+async function performCalculation() {
+  const nameInput = document.getElementById("athleteName");
+  if (nameInput && nameInput.value.trim()) {
+    STATE.name = nameInput.value.trim();
+  }
+
+  const weightInput = document.getElementById("athleteWeight");
+  if (weightInput) {
+    STATE.weight = parseFloat(weightInput.value) || 75;
+  }
+
+  const genderSelect = document.getElementById("athleteGender");
+  if (genderSelect) {
+    STATE.gender = genderSelect.value;
+  }
+
+  // Штрафы
+  STATE.penalties.vomited = document.getElementById("penVomit")?.checked || false;
+  STATE.penalties.fell_asleep = document.getElementById("penSleep")?.checked || false;
+  STATE.penalties.called_ex = document.getElementById("penEx")?.checked || false;
+  STATE.penalties.lost_items = document.getElementById("penLost")?.checked || false;
+
+  const payload = {
+    name: STATE.name,
+    weight: STATE.weight,
+    gender: STATE.gender,
+    experience: STATE.experience,
+    drinks: STATE.drinks,
+    hours: STATE.hours,
+    snack: STATE.snack,
+    penalties: STATE.penalties
+  };
+
+  try {
+    const res = await fetch("/api/calculate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    STATE.currentResult = data;
+    renderCalculationResult(data);
+  } catch (err) {
+    console.error("Ошибка API расчета, используем клиентский расчет:", err);
+    // Клиентский фоллбэк
+    const fallback = clientCalculate(payload);
+    STATE.currentResult = fallback;
+    renderCalculationResult(fallback);
+  }
+}
+
+function clientCalculate(p) {
+  let pure_g = 0;
+  p.drinks.forEach(d => {
+    pure_g += (d.volume_ml * d.count) * (d.abv / 100) * 0.789;
+  });
+  const r = p.gender === 'm' ? 0.68 : 0.55;
+  const raw_bac = pure_g / (p.weight * r);
+  const est_bac = Math.max(0, raw_bac - Math.max(0, (p.hours - 0.5) * 0.15));
+  const sober_hours = Math.round((raw_bac / 0.15) * 10) / 10;
+  
+  let score = pure_g * (75 / Math.max(40, p.weight));
+  if (p.penalties.vomited) score = 15;
+
+  let rank = {
+    title: "1-й Взрослый разряд",
+    badge: "🥈",
+    icon: "🥃",
+    description: "Честная пол-литра. Автопилот настроен идеально.",
+    morning_verdict: "Похмелье классическое. Рекомендуется минералка."
+  };
+  if (score > 180) {
+    rank = {
+      title: "Мастер Спорта по Литрболу (МС)",
+      badge: "⭐",
+      icon: "🎖️",
+      description: "Гроссмейстер хмельных баталий.",
+      morning_verdict: "Просыпается и готовит яичницу."
+    };
+  } else if (score > 130) {
+    rank = {
+      title: "КМС по Литрболу",
+      badge: "🥇",
+      icon: "🏆",
+      description: "Элита застолья. Ни одного звонка бывшим.",
+      morning_verdict: "Огуречный рассол и аспирин."
+    };
+  }
+
+  return {
+    score: Math.round(score),
+    pure_ethanol_g: Math.round(pure_g * 10) / 10,
+    est_bac_promille: Math.round(est_bac * 100) / 100,
+    sober_hours: sober_hours,
+    rank: rank,
+    order_num: `№ 77-A/ФЛР-2026`,
+    disciplines: "Академическое застольное многоборье",
+    penalty_notes: []
+  };
+}
+
+function renderCalculationResult(res) {
+  const box = document.getElementById("calcResultBox");
+  if (!box) return;
+
+  box.style.display = "block";
+  box.scrollIntoView({ behavior: 'smooth' });
+
+  document.getElementById("resBadge").textContent = res.rank.badge || "🏅";
+  document.getElementById("resTitle").textContent = res.rank.title;
+  document.getElementById("resOrder").textContent = `ПРИКАЗ АТТЕСТАЦИОННОЙ КОМИССИИ ${res.order_num}`;
+  document.getElementById("resScore").textContent = res.score;
+  document.getElementById("resEthanol").textContent = `${res.pure_ethanol_g} г`;
+  document.getElementById("resBac").textContent = `~${res.est_bac_promille} ‰`;
+  document.getElementById("resSober").textContent = `${res.sober_hours} ч.`;
+  document.getElementById("resVerdict").innerHTML = `
+    <strong>Вердикт судейской коллегии:</strong> ${res.rank.description}<br><br>
+    <strong>Утренний протокол:</strong> ${res.rank.morning_verdict}
+  `;
+
+  // Кнопка перехода к корочке
+  const toCertBtn = document.getElementById("goToCertBtn");
+  if (toCertBtn) {
+    toCertBtn.onclick = () => {
+      if (!STATE.detectorVerified) {
+        if (confirm("🚨 ВНИМАНИЕ: Вы претендуете на спортивный разряд!\nЖелаете пройти «Детектор Пиздежа», чтобы подтвердить подлинность и получить защитный штамп ВАК?")) {
+          startDetectorFromCalc();
+          return;
+        }
+      }
+      switchTab("tab-cert");
+    };
+  }
+}
+
+// ==========================================
+// ЭКЗАМЕН ВАК (ТЕОРИЯ)
+// ==========================================
+
+async function initQuiz() {
+  try {
+    const res = await fetch("/api/questions");
+    STATE.quizQuestions = await res.json();
+  } catch (e) {
+    console.warn("Using inline questions fallback");
+    STATE.quizQuestions = [
+      {
+        question: "Вам предлагают запить крепкий напиток сладкой газировкой. Ваши действия?",
+        options: [
+          { text: "С радостью соглашусь, так слаще", score: 2 },
+          { text: "Откажусь и запью чистой водой", score: 10 },
+          { text: "Запивать? Только закусывать огурцом!", score: 15 },
+          { text: "Запью нефильтрованным пивом («Ёрш»)", score: 12 }
+        ]
+      }
+    ];
+  }
+  renderQuizQuestion();
+}
+
+function renderQuizQuestion() {
+  const container = document.getElementById("quizContainer");
+  if (!container || !STATE.quizQuestions.length) return;
+
+  const q = STATE.quizQuestions[STATE.quizCurrentIdx];
+  const total = STATE.quizQuestions.length;
+  const progressPct = ((STATE.quizCurrentIdx + 1) / total) * 100;
+
+  const fillEl = document.getElementById("quizProgressFill");
+  if (fillEl) fillEl.style.width = `${progressPct}%`;
+
+  const letters = ["А", "Б", "В", "Г"];
+
+  container.innerHTML = `
+    <div class="quiz-question-box">
+      <div class="quiz-q-num">Вопрос ${STATE.quizCurrentIdx + 1} из ${total}</div>
+      <div class="quiz-q-text">${q.question}</div>
+      <div class="quiz-options">
+        ${q.options.map((opt, i) => `
+          <button type="button" class="quiz-opt-btn" onclick="handleQuizAnswer(${opt.score}, '${escapeHtml(opt.comment || '')}')">
+            <span class="quiz-opt-letter">${letters[i]}</span>
+            <span>${opt.text}</span>
+          </button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+window.handleQuizAnswer = function(score, comment) {
+  STATE.quizTotalScore += score;
+  STATE.quizCurrentIdx++;
+
+  if (STATE.quizCurrentIdx < STATE.quizQuestions.length) {
+    renderQuizQuestion();
+  } else {
+    finishQuiz();
+  }
+};
+
+function finishQuiz() {
+  const container = document.getElementById("quizContainer");
+  if (!container) return;
+
+  const score = STATE.quizTotalScore;
+  let rankTitle = "3-й Взрослый разряд по Литрболу";
+  let badge = "🥈";
+  let desc = "Теоретическая база крепкая. Знает технику безопасности и правила застольного этикета.";
+
+  if (score >= 130) {
+    rankTitle = "Мастер Спорта (Теоретик-Гроссмейстер)";
+    badge = "⭐";
+    desc = "Абсолютное знание регламента, традиций и фармакологии! Рекомендован на должность председателя ВАК.";
+  } else if (score >= 95) {
+    rankTitle = "КМС по теоретическому литрболу";
+    badge = "🥇";
+    desc = "Отличное понимание психологии застолья и первой помощи собутыльникам.";
+  } else if (score < 50) {
+    rankTitle = "Юношеский разряд (Кефирный теоретик)";
+    badge = "🍼";
+    desc = "Много тактических ошибок. Рекомендуется повторить правила перед следующим выходом на дистанцию.";
+  }
+
+  // Обновляем состояние атлета
+  STATE.currentResult = {
+    score: score,
+    pure_ethanol_g: 0,
+    est_bac_promille: 0,
+    sober_hours: 0,
+    rank: {
+      title: rankTitle,
+      badge: badge,
+      description: desc,
+      morning_verdict: "Теоретически подкован, похмелья нет."
+    },
+    order_num: `№ ТЕОРИЯ-${score}/ВАК`,
+    disciplines: "Теоретическая классификация и этикет"
+  };
+
+  container.innerHTML = `
+    <div class="result-card">
+      <div class="result-badge">${badge}</div>
+      <div class="result-title">${rankTitle}</div>
+      <div class="result-order">ИТОГОВЫЙ БАЛЛ ЭКЗАМЕНА: ${score} ОЧКОВ</div>
+      <div class="result-verdict">${desc}</div>
+      <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-top:20px;">
+        <button type="button" class="btn-primary" style="width:auto; padding:12px 24px;" onclick="switchTab('tab-cert')">
+          🎖️ Получить официальную корочку
+        </button>
+        <button type="button" class="btn-secondary" onclick="restartQuiz()">
+          🔄 Сдать экзамен заново
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+window.restartQuiz = function() {
+  STATE.quizCurrentIdx = 0;
+  STATE.quizTotalScore = 0;
+  renderQuizQuestion();
+};
+
+function escapeHtml(str) {
+  return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ==========================================
+// ГЕНЕРАТОР УДОСТОВЕРЕНИЯ (CANVAS 1200 x 800)
+// ==========================================
+
+function drawDefaultCertificate() {
+  // Инициализируем канвас заглушкой
+  setTimeout(() => {
+    renderCertificateCanvas();
+  }, 100);
+}
+
+function renderCertificateCanvas() {
+  const canvas = document.getElementById("certCanvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const W = 1200;
+  const H = 800;
+
+  canvas.width = W;
+  canvas.height = H;
+
+  const result = STATE.currentResult || {
+    rank: { title: "Мастер Спорта по Литрболу (МС)" },
+    order_num: "№ 40-ОПОХМЕЛ/ФЛР-2026",
+    disciplines: "Академическое застольное многоборье"
+  };
+
+  // 1. Внешний фон (корочка цвета бордовый сафьян / темно-синяя кожа)
+  const isRedCover = true;
+  const gradBg = ctx.createLinearGradient(0, 0, W, H);
+  if (isRedCover) {
+    gradBg.addColorStop(0, "#4a0e17");
+    gradBg.addColorStop(0.5, "#6b1422");
+    gradBg.addColorStop(1, "#360810");
+  } else {
+    gradBg.addColorStop(0, "#0f172a");
+    gradBg.addColorStop(0.5, "#1e293b");
+    gradBg.addColorStop(1, "#0a0f1d");
+  }
+  ctx.fillStyle = gradBg;
+  roundRect(ctx, 0, 0, W, H, 24);
+  ctx.fill();
+
+  // Золотая прострочка по периметру
+  ctx.strokeStyle = "#e5a93b";
+  ctx.lineWidth = 4;
+  roundRect(ctx, 16, 16, W - 32, H - 32, 18);
+  ctx.stroke();
+
+  // Линия сгиба удостоверения по центру
+  const foldX = W / 2;
+  const foldGrad = ctx.createLinearGradient(foldX - 15, 0, foldX + 15, 0);
+  foldGrad.addColorStop(0, "rgba(0,0,0,0.4)");
+  foldGrad.addColorStop(0.5, "rgba(0,0,0,0.85)");
+  foldGrad.addColorStop(1, "rgba(0,0,0,0.4)");
+  ctx.fillStyle = foldGrad;
+  ctx.fillRect(foldX - 10, 16, 20, H - 32);
+
+  // Внутренние бежево-гербовые страницы (разворот)
+  drawInnerPage(ctx, 30, 30, foldX - 45, H - 60, true);
+  drawInnerPage(ctx, foldX + 15, 30, foldX - 45, H - 60, false);
+
+  // ------------------------------------------
+  // ЛЕВАЯ СТРАНИЦА: Обложка и герб
+  // ------------------------------------------
+  const leftCenterX = 30 + (foldX - 45) / 2;
+
+  // Золотой герб ФЛР
+  drawCoatOfArms(ctx, leftCenterX, 220);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#1e1e24";
+  ctx.font = "bold 22px 'Times New Roman', serif";
+  ctx.fillText("ВСЕРОССИЙСКАЯ ФЕДЕРАЦИЯ ЛИТРБОЛА", leftCenterX, 380);
+
+  ctx.fillStyle = "#8b1e2d";
+  ctx.font = "bold 15px sans-serif";
+  ctx.letterSpacing = "2px";
+  ctx.fillText("ВЫСШАЯ АТТЕСТАЦИОННАЯ КОМИССИЯ", leftCenterX, 410);
+
+  ctx.fillStyle = "#b45309";
+  ctx.font = "bold 32px 'Times New Roman', serif";
+  ctx.fillText("УДОСТОВЕРЕНИЕ", leftCenterX, 490);
+
+  ctx.font = "bold 20px 'Times New Roman', serif";
+  ctx.fillStyle = "#1e1e24";
+  ctx.fillText("СПОРТИВНОГО РАЗРЯДА", leftCenterX, 525);
+
+  ctx.font = "italic 16px 'Times New Roman', serif";
+  ctx.fillStyle = "#4b5563";
+  ctx.fillText(result.order_num || "Приказ № 05-ОПОХМЕЛ/2026", leftCenterX, 580);
+  ctx.fillText(`Действительно при наличии чувства юмора и закуски`, leftCenterX, 610);
+
+  // Защитная гильоширная полоска
+  drawGuillocheLine(ctx, 60, 660, foldX - 75, 660);
+
+  // Штамп Детектора Пиздежа
+  if (STATE.detectorVerified) {
+    drawDetectorStamp(ctx, leftCenterX, 650);
+  }
+
+  // ------------------------------------------
+  // ПРАВАЯ СТРАНИЦА: Данные спортсмена, разряд, печать
+  // ------------------------------------------
+  const rightLeftX = foldX + 45;
+  const rightWidth = foldX - 75;
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#1e1e24";
+  ctx.font = "bold 16px 'Times New Roman', serif";
+  ctx.fillText("ЕДИНАЯ ЗАСТОЛЬНАЯ СПОРТИВНАЯ КЛАССИФИКАЦИЯ (ЕЗСК)", rightLeftX + rightWidth / 2, 70);
+
+  // Фото / Аватарка (слева на правой странице)
+  const photoX = rightLeftX + 15;
+  const photoY = 100;
+  const photoW = 150;
+  const photoH = 190;
+  drawAthletePhoto(ctx, photoX, photoY, photoW, photoH);
+
+  // Текстовые поля спортсмена (справа от фото)
+  ctx.textAlign = "left";
+  const infoX = photoX + photoW + 25;
+
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "12px sans-serif";
+  ctx.fillText("ФАМИЛИЯ, ИМЯ:", infoX, 120);
+  ctx.fillStyle = "#111827";
+  ctx.font = "bold 24px 'Times New Roman', serif";
+  ctx.fillText(STATE.name || "Атлетов Иван", infoX, 150);
+
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "12px sans-serif";
+  ctx.fillText("ВЕСОВАЯ КАТЕГОРИЯ:", infoX, 190);
+  ctx.fillStyle = "#111827";
+  ctx.font = "bold 18px sans-serif";
+  ctx.fillText(`${STATE.weight} кг (${getWeightCategory(STATE.weight)})`, infoX, 215);
+
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "12px sans-serif";
+  ctx.fillText("КОРОННАЯ ДИСЦИПЛИНА:", infoX, 255);
+  ctx.fillStyle = "#8b1e2d";
+  ctx.font = "bold 16px sans-serif";
+  ctx.fillText(result.disciplines || "Академическое многоборье", infoX, 280);
+
+  // Золотая плашка присвоенного разряда
+  const rankY = 320;
+  const rankBoxW = rightWidth - 20;
+  const rankGrad = ctx.createLinearGradient(rightLeftX + 10, rankY, rightLeftX + 10 + rankBoxW, rankY + 60);
+  rankGrad.addColorStop(0, "#fef3c7");
+  rankGrad.addColorStop(0.5, "#fde68a");
+  rankGrad.addColorStop(1, "#fef3c7");
+  ctx.fillStyle = rankGrad;
+  ctx.strokeStyle = "#d97706";
+  ctx.lineWidth = 2;
+  roundRect(ctx, rightLeftX + 10, rankY, rankBoxW, 64, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#78350f";
+  ctx.font = "bold 13px sans-serif";
+  ctx.fillText("ПРИСВОЕНО СПОРТИВНОЕ ЗВАНИЕ / РАЗРЯД:", rightLeftX + 10 + rankBoxW / 2, rankY + 22);
+
+  ctx.fillStyle = "#991b1b";
+  ctx.font = "bold 24px 'Times New Roman', serif";
+  ctx.fillText(result.rank.title, rightLeftX + 10 + rankBoxW / 2, rankY + 50);
+
+  // Метрики выступления
+  if (result.pure_ethanol_g > 0) {
+    ctx.textAlign = "left";
+    ctx.font = "13px sans-serif";
+    ctx.fillStyle = "#4b5563";
+    ctx.fillText(`Чистый спирт (C₂H₅OH): ${result.pure_ethanol_g} г  •  Промилле: ~${result.est_bac_promille} ‰`, rightLeftX + 15, 415);
+  }
+
+  // Подписи и печать внизу
+  const sigY = 560;
+  ctx.font = "14px 'Times New Roman', serif";
+  ctx.fillStyle = "#111827";
+  ctx.fillText("Председатель ВАК:", rightLeftX + 20, sigY);
+  ctx.font = "italic 18px 'Brush Script MT', cursive, serif";
+  ctx.fillStyle = "#1e3a8a";
+  ctx.fillText("С. Г. Наливашкин", rightLeftX + 170, sigY - 2);
+
+  ctx.strokeStyle = "#4b5563";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(rightLeftX + 160, sigY + 5);
+  ctx.lineTo(rightLeftX + 310, sigY + 5);
+  ctx.stroke();
+
+  ctx.font = "14px 'Times New Roman', serif";
+  ctx.fillStyle = "#111827";
+  ctx.fillText("Секретарь комиссии:", rightLeftX + 20, sigY + 45);
+  ctx.font = "italic 16px 'Brush Script MT', cursive, serif";
+  ctx.fillStyle = "#1e3a8a";
+  ctx.fillText("О. П. Опохмелова", rightLeftX + 170, sigY + 43);
+
+  ctx.beginPath();
+  ctx.moveTo(rightLeftX + 160, sigY + 50);
+  ctx.lineTo(rightLeftX + 310, sigY + 50);
+  ctx.stroke();
+
+  // Синяя гербовая печать
+  drawOfficialStamp(ctx, rightLeftX + 330, sigY + 10);
+
+  // Защитный стилизованный QR-код
+  drawFakeQrCode(ctx, rightLeftX + rightWidth - 85, sigY - 20, 75);
+}
+
+// Вспомогательные функции отрисовки
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawInnerPage(ctx, x, y, w, h, isLeft) {
+  // Кремово-защитная бумага с водяной сеткой
+  ctx.fillStyle = "#fcfaf2";
+  roundRect(ctx, x, y, w, h, 8);
+  ctx.fill();
+
+  // Тонкая рамка страницы
+  ctx.strokeStyle = "#d4af37";
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, x + 8, y + 8, w - 16, h - 16, 6);
+  ctx.stroke();
+
+  ctx.strokeStyle = "#e8dfc8";
+  ctx.lineWidth = 0.5;
+  roundRect(ctx, x + 12, y + 12, w - 24, h - 24, 4);
+  ctx.stroke();
+}
+
+function drawCoatOfArms(ctx, cx, cy) {
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Золотой лавровый венок
+  ctx.strokeStyle = "#d97706";
+  ctx.fillStyle = "#fef3c7";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, 70, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fill();
+
+  // Скрещенные штопоры / вилки
+  ctx.strokeStyle = "#b45309";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(-40, -40);
+  ctx.lineTo(40, 40);
+  ctx.moveTo(40, -40);
+  ctx.lineTo(-40, 40);
+  ctx.stroke();
+
+  // Граненый стакан по центру
+  ctx.fillStyle = "#2563eb";
+  ctx.strokeStyle = "#1d4ed8";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-22, -25);
+  ctx.lineTo(22, -25);
+  ctx.lineTo(16, 35);
+  ctx.lineTo(-16, 35);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Долька лимона или огурец
+  ctx.fillStyle = "#84cc16";
+  ctx.beginPath();
+  ctx.arc(0, -28, 12, 0, Math.PI, true);
+  ctx.closePath();
+  ctx.fill();
+
+  // Пятиконечная золотая звезда сверху
+  drawStar(ctx, 0, -52, 5, 12, 6, "#d97706");
+
+  ctx.restore();
+}
+
+function drawStar(ctx, cx, cy, spikes, outerRadius, innerRadius, color) {
+  let rot = Math.PI / 2 * 3;
+  let x = cx;
+  let y = cy;
+  let step = Math.PI / spikes;
+
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - outerRadius);
+  for (let i = 0; i < spikes; i++) {
+    x = cx + Math.cos(rot) * outerRadius;
+    y = cy + Math.sin(rot) * outerRadius;
+    ctx.lineTo(x, y);
+    rot += step;
+
+    x = cx + Math.cos(rot) * innerRadius;
+    y = cy + Math.sin(rot) * innerRadius;
+    ctx.lineTo(x, y);
+    rot += step;
+  }
+  ctx.lineTo(cx, cy - outerRadius);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function drawAthletePhoto(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.fillStyle = "#e5e7eb";
+  ctx.strokeStyle = "#9ca3af";
+  ctx.lineWidth = 2;
+  roundRect(ctx, x, y, w, h, 6);
+  ctx.fill();
+  ctx.stroke();
+
+  if (STATE.customPhoto) {
+    ctx.clip();
+    ctx.drawImage(STATE.customPhoto, x, y, w, h);
+  } else {
+    // Векторный аватар
+    ctx.clip();
+    ctx.fillStyle = "#cbd5e1";
+    ctx.fillRect(x, y, w, h);
+
+    // Голова и силуэт
+    const cx = x + w / 2;
+    const cy = y + h / 2 - 10;
+    
+    // Плечи
+    ctx.fillStyle = "#475569";
+    ctx.beginPath();
+    ctx.arc(cx, cy + 90, 60, Math.PI, 0, false);
+    ctx.fill();
+
+    // Голова
+    ctx.fillStyle = "#fbcfe8";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 38, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Шапка или прическа в зависимости от аватара
+    ctx.fillStyle = "#1e293b";
+    ctx.beginPath();
+    ctx.arc(cx, cy - 12, 40, Math.PI, 0, false);
+    ctx.fill();
+
+    // Темные очки / усы
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(cx - 24, cy - 5, 20, 10);
+    ctx.fillRect(cx + 4, cy - 5, 20, 10);
+    ctx.fillRect(cx - 6, cy - 3, 12, 3);
+  }
+
+  ctx.restore();
+
+  // Печать уголка фото
+  ctx.save();
+  ctx.strokeStyle = "rgba(30, 58, 138, 0.4)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(x + w, y + h, 35, Math.PI, Math.PI * 1.5);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawOfficialStamp(ctx, cx, cy) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.15); // легкий естественный наклон штампа
+
+  ctx.strokeStyle = "rgba(30, 58, 138, 0.75)";
+  ctx.fillStyle = "rgba(30, 58, 138, 0.75)";
+  ctx.lineWidth = 3;
+
+  // Внешний круг
+  ctx.beginPath();
+  ctx.arc(0, 0, 55, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Внутренний круг
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(0, 0, 48, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Текст по кругу
+  ctx.font = "bold 9px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("★ ФЕДЕРАЦИЯ ЛИТРБОЛА РОССИИ ★", 0, -32);
+  ctx.fillText("АТТЕСТОВАНО ВАК", 0, 36);
+
+  // Центр печати
+  ctx.font = "bold 11px sans-serif";
+  ctx.fillText("ДЛЯ", 0, -8);
+  ctx.fillText("ДОКУМЕНТОВ", 0, 6);
+  ctx.font = "8px sans-serif";
+  ctx.fillText("№ 1984-ФЛР", 0, 18);
+
+  ctx.restore();
+}
+
+function drawFakeQrCode(ctx, x, y, size) {
+  ctx.save();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(x, y, size, size);
+  ctx.strokeStyle = "#1f2937";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, size, size);
+
+  // Стилизованная QR матрица
+  ctx.fillStyle = "#111827";
+  const step = size / 7;
+  // Угловые маркеры
+  ctx.fillRect(x + step * 0.5, y + step * 0.5, step * 2, step * 2);
+  ctx.fillRect(x + size - step * 2.5, y + step * 0.5, step * 2, step * 2);
+  ctx.fillRect(x + step * 0.5, y + size - step * 2.5, step * 2, step * 2);
+
+  // Псевдо-пиксели
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 5; c++) {
+      if ((r + c * 3) % 2 === 0) {
+        ctx.fillRect(x + (c + 1) * step, y + (r + 1) * step, step * 0.8, step * 0.8);
+      }
+    }
+  }
+
+  ctx.font = "8px sans-serif";
+  ctx.fillStyle = "#4b5563";
+  ctx.textAlign = "center";
+  ctx.fillText("ПРОВЕРЕНО", x + size / 2, y + size + 10);
+  ctx.restore();
+}
+
+function drawGuillocheLine(ctx, x1, y1, x2, y2) {
+  ctx.strokeStyle = "#e5e7eb";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+}
+
+function getWeightCategory(w) {
+  if (w < 65) return "Полулегкий вес";
+  if (w < 80) return "Средний вес";
+  if (w < 100) return "Полутяжелый вес";
+  return "Супертяжелый вес (Танк)";
+}
+
+function downloadCertificate() {
+  const canvas = document.getElementById("certCanvas");
+  if (!canvas) return;
+
+  const link = document.createElement("a");
+  link.download = `Удостоверение_Литрбол_${(STATE.name || "Атлет").replace(/\s+/g, '_')}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+function shareCertificate() {
+  const canvas = document.getElementById("certCanvas");
+  const rank = STATE.currentResult?.rank?.title || "Мастер Спорта по Литрболу";
+  const text = `🍺 Мой официальный разряд по литрболу: ${rank}! Приказ ВАК выдан. Проверь свой разряд!`;
+
+  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(text)}`;
+    window.Telegram.WebApp.openTelegramLink(shareUrl);
+  } else if (navigator.share) {
+    canvas.toBlob(blob => {
+      const file = new File([blob], "litrball_cert.png", { type: "image/png" });
+      navigator.share({
+        title: "Федерация Литрбола России",
+        text: text,
+        files: [file]
+      }).catch(() => {});
+    });
+  } else {
+    navigator.clipboard.writeText(text);
+    alert("Текст скопирован в буфер обмена! Отправьте его друзьям в чат.");
+  }
+}
+
+// Загрузка справочника разрядов
+async function fetchRanksTable() {
+  const tbody = document.getElementById("ranksTableBody");
+  if (!tbody) return;
+
+  try {
+    const res = await fetch("/api/ranks");
+    const ranks = await res.json();
+    tbody.innerHTML = ranks.map(r => `
+      <tr>
+        <td><div class="rank-badge-cell"><span>${r.icon || '🏅'}</span> <strong>${r.title}</strong></div></td>
+        <td style="color:var(--gold-glow); font-weight:700;">${r.min_score}+ очков</td>
+        <td style="font-size:0.85rem; color:var(--text-muted);">${r.description}</td>
+        <td style="font-size:0.85rem; color:#a7f3d0;">${r.morning_verdict}</td>
+      </tr>
+    `).join("");
+  } catch (e) {
+    console.warn("Could not load ranks table", e);
+  }
+}
+
+function drawDetectorStamp(ctx, cx, cy) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.04);
+  ctx.strokeStyle = "rgba(185, 28, 28, 0.9)";
+  ctx.lineWidth = 2.5;
+  roundRect(ctx, -145, -16, 290, 32, 6);
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(185, 28, 28, 0.9)";
+  ctx.font = "bold 11px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("★ ПРОВЕРЕНО ВАК: ПИЗДЕЖА НЕТ ★", 0, 4);
+  ctx.restore();
+}
+
+// ==========================================
+// ДЕТЕКТОР ПИЗДЕЖА (ПОЛИГРАФ ВАК)
+// ==========================================
+
+const DETECTOR_STATE = {
+  mathTimerInterval: null,
+  mathTimeLeft: 10.0,
+  correctChange: 160,
+  motorTimerInterval: null,
+  motorTimeLeft: 8.0,
+  motorHits: 0,
+  requiredHits: 4,
+  pickleMoveInterval: null,
+  mathPassed: false,
+  motorPassed: false
+};
+
+function initDetector() {
+  setupDetectorProof();
+  const detTabBtn = document.querySelector('button[data-tab="tab-detector"]');
+  if (detTabBtn) {
+    detTabBtn.addEventListener("click", () => {
+      resetAndStartDetector();
+    });
+  }
+}
+
+function startDetectorFromCalc() {
+  switchTab("tab-detector");
+  resetAndStartDetector();
+}
+
+function resetAndStartDetector() {
+  const stepMath = document.getElementById("detStepMath");
+  const stepMotor = document.getElementById("detStepMotor");
+  const stepProof = document.getElementById("detStepProof");
+  const resultBox = document.getElementById("detResultBox");
+
+  if (stepMath) stepMath.style.display = "block";
+  if (stepMotor) stepMotor.style.display = "none";
+  if (stepProof) stepProof.style.display = "none";
+  if (resultBox) resultBox.style.display = "none";
+
+  startMathStep();
+}
+
+function startMathStep() {
+  const beerPrice = [120, 130, 140, 150][Math.floor(Math.random() * 4)];
+  const snackPrice = [60, 70, 80, 90][Math.floor(Math.random() * 4)];
+  const total = beerPrice * 2 + snackPrice;
+  const bill = 500;
+  DETECTOR_STATE.correctChange = bill - total;
+
+  const qEl = document.getElementById("detMathQuestion");
+  if (qEl) {
+    qEl.textContent = `Вы берете 2 бутылки пива по ${beerPrice}₽ и пачку сухариков за ${snackPrice}₽. Дали кассирше ${bill}₽. Сколько сдачи вам обязаны вернуть?`;
+  }
+
+  const optionsContainer = document.getElementById("detMathOptions");
+  if (!optionsContainer) return;
+  optionsContainer.innerHTML = "";
+
+  const options = [
+    { text: `${DETECTOR_STATE.correctChange} ₽`, correct: true },
+    { text: `${DETECTOR_STATE.correctChange - 30} ₽`, correct: false },
+    { text: `${DETECTOR_STATE.correctChange + 40} ₽`, correct: false },
+    { text: "«Сдачи не надо, я миллионер!» 💸", correct: true, boss: true }
+  ].sort(() => Math.random() - 0.5);
+
+  options.forEach(opt => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-secondary";
+    btn.style.width = "100%";
+    btn.style.padding = "12px";
+    btn.textContent = opt.text;
+    btn.onclick = () => handleMathAnswer(opt);
+    optionsContainer.appendChild(btn);
+  });
+
+  // Запуск таймера
+  clearInterval(DETECTOR_STATE.mathTimerInterval);
+  DETECTOR_STATE.mathTimeLeft = 10.0;
+  const timerEl = document.getElementById("detMathTimer");
+  if (timerEl) {
+    timerEl.textContent = "10.0 сек";
+    timerEl.style.color = "var(--accent-red)";
+  }
+
+  DETECTOR_STATE.mathTimerInterval = setInterval(() => {
+    DETECTOR_STATE.mathTimeLeft -= 0.1;
+    if (DETECTOR_STATE.mathTimeLeft <= 0) {
+      clearInterval(DETECTOR_STATE.mathTimerInterval);
+      if (timerEl) timerEl.textContent = "0.0 сек (Время вышло!)";
+      handleMathAnswer({ correct: false, timeout: true });
+    } else {
+      if (timerEl) timerEl.textContent = `${DETECTOR_STATE.mathTimeLeft.toFixed(1)} сек`;
+    }
+  }, 100);
+}
+
+function handleMathAnswer(opt) {
+  clearInterval(DETECTOR_STATE.mathTimerInterval);
+  DETECTOR_STATE.mathPassed = opt.correct;
+
+  setTimeout(() => {
+    const stepMath = document.getElementById("detStepMath");
+    const stepMotor = document.getElementById("detStepMotor");
+    if (stepMath) stepMath.style.display = "none";
+    if (stepMotor) stepMotor.style.display = "block";
+    startMotorStep();
+  }, 400);
+}
+
+function startMotorStep() {
+  DETECTOR_STATE.motorHits = 0;
+  DETECTOR_STATE.motorTimeLeft = 8.0;
+
+  const hitCountEl = document.getElementById("detHitCount");
+  if (hitCountEl) hitCountEl.textContent = `0 / ${DETECTOR_STATE.requiredHits}`;
+
+  const timerEl = document.getElementById("detMotorTimer");
+  if (timerEl) timerEl.textContent = "8.0 сек";
+
+  const area = document.getElementById("pickleGameArea");
+  const target = document.getElementById("pickleTarget");
+
+  function movePickle() {
+    if (!area || !target) return;
+    const maxX = Math.max(10, area.clientWidth - 50);
+    const maxY = Math.max(10, area.clientHeight - 50);
+    const randX = Math.floor(Math.random() * maxX);
+    const randY = Math.floor(Math.random() * maxY);
+    target.style.left = `${randX}px`;
+    target.style.top = `${randY}px`;
+  }
+
+  movePickle();
+  clearInterval(DETECTOR_STATE.pickleMoveInterval);
+  DETECTOR_STATE.pickleMoveInterval = setInterval(movePickle, 700);
+
+  if (target) {
+    target.onclick = () => {
+      DETECTOR_STATE.motorHits++;
+      if (hitCountEl) hitCountEl.textContent = `${DETECTOR_STATE.motorHits} / ${DETECTOR_STATE.requiredHits}`;
+      movePickle();
+      if (DETECTOR_STATE.motorHits >= DETECTOR_STATE.requiredHits) {
+        finishMotorStep(true);
+      }
+    };
+  }
+
+  clearInterval(DETECTOR_STATE.motorTimerInterval);
+  DETECTOR_STATE.motorTimerInterval = setInterval(() => {
+    DETECTOR_STATE.motorTimeLeft -= 0.1;
+    if (DETECTOR_STATE.motorTimeLeft <= 0) {
+      finishMotorStep(DETECTOR_STATE.motorHits >= DETECTOR_STATE.requiredHits);
+    } else {
+      if (timerEl) timerEl.textContent = `${DETECTOR_STATE.motorTimeLeft.toFixed(1)} сек`;
+    }
+  }, 100);
+}
+
+function finishMotorStep(passed) {
+  clearInterval(DETECTOR_STATE.motorTimerInterval);
+  clearInterval(DETECTOR_STATE.pickleMoveInterval);
+  DETECTOR_STATE.motorPassed = passed;
+
+  const stepMotor = document.getElementById("detStepMotor");
+  const stepProof = document.getElementById("detStepProof");
+  if (stepMotor) stepMotor.style.display = "none";
+  if (stepProof) stepProof.style.display = "block";
+}
+
+function setupDetectorProof() {
+  const oathBtn = document.getElementById("detOathBtn");
+  if (oathBtn) {
+    oathBtn.onclick = () => finishDetector(true);
+  }
+
+  const photoInput = document.getElementById("detPhotoProof");
+  if (photoInput) {
+    photoInput.onchange = () => {
+      alert("🔬 Сканирование снимка нейросетью ВАК...\nОбнаружено: тара стеклянная, следы этикета и солений!\nПодлинность подтверждена.");
+      finishDetector(true);
+    };
+  }
+
+  const finishBtn = document.getElementById("detFinishBtn");
+  if (finishBtn) {
+    finishBtn.onclick = () => {
+      switchTab("tab-cert");
+    };
+  }
+}
+
+function finishDetector(proofAccepted) {
+  const stepProof = document.getElementById("detStepProof");
+  const resBox = document.getElementById("detResultBox");
+  if (stepProof) stepProof.style.display = "none";
+  if (resBox) resBox.style.display = "block";
+
+  STATE.detectorVerified = true;
+
+  let title = "ПИЗДЁЖ НЕ ВЫЯВЛЕН! АТТЕСТОВАНО ВАК";
+  let badge = "🛡️";
+  let desc = "Полевые испытания завершены успешно. Алкогольная математика и реакция на огурец соответствуют соревновательным нормам. В официальное удостоверение спортсмена внесена защитная гербовая отметка ВАК!";
+
+  if (!DETECTOR_STATE.mathPassed && !DETECTOR_STATE.motorPassed) {
+    title = "ВЫСОКИЙ УРОВЕНЬ ТРЕМОРА!";
+    badge = "⚠️";
+    desc = "Касса посчитана неверно, огурец убежал. Однако это доказывает, что спортсмен действительно употребил! Разряд подтвержден с занесением замечания за потерю координации.";
+  }
+
+  const titleEl = document.getElementById("detVerdictTitle");
+  const badgeEl = document.getElementById("detVerdictBadge");
+  const descEl = document.getElementById("detVerdictDesc");
+
+  if (titleEl) titleEl.textContent = title;
+  if (badgeEl) badgeEl.textContent = badge;
+  if (descEl) descEl.innerHTML = desc;
+
+  renderCertificateCanvas();
+}
+
+// =============================================================
+// УЛЬТИМАТИВНЫЙ ФАРШ: ТРЕЗВОМЕР (BAC / ВИДМАРК)
+// =============================================================
+function initBacTracker() {
+  const slider = document.getElementById("bacElapsedSlider");
+  const sliderVal = document.getElementById("bacElapsedVal");
+
+  if (slider) {
+    slider.addEventListener("input", () => {
+      if (sliderVal) sliderVal.textContent = `${slider.value} ч.`;
+      updateBacDisplay(parseFloat(slider.value));
+    });
+  }
+
+  // Обновляем при изменении параметров
+  const calcBtn = document.getElementById("calculateBtn");
+  if (calcBtn) {
+    calcBtn.addEventListener("click", () => {
+      setTimeout(() => updateBacDisplay(slider ? parseFloat(slider.value) : 0), 200);
+    });
+  }
+}
+
+function updateBacDisplay(hoursPassed = 0) {
+  let totalEthanolG = 0;
+  STATE.drinks.forEach(d => {
+    const vol = (d.volume_ml || 0) * (d.count || 1);
+    const abv = d.abv || 0;
+    totalEthanolG += vol * (abv / 100.0) * 0.789;
+  });
+
+  const weight = STATE.weight || 80;
+  const gender = STATE.gender || 'm';
+  const r = gender === 'm' ? 0.68 : 0.55;
+  const peakBac = totalEthanolG / (weight * r);
+  const currentBac = Math.max(0, peakBac - (hoursPassed * 0.15));
+
+  const driveHours = currentBac > 0.35 ? Math.round(((currentBac - 0.35) / 0.15) * 10) / 10 : 0.0;
+  const fullHours = Math.round((currentBac / 0.15) * 10) / 10;
+
+  const bacNumEl = document.getElementById("bacNumber");
+  const stageEl = document.getElementById("bacStageBadge");
+  const descEl = document.getElementById("bacStageDesc");
+  const driveEl = document.getElementById("bacDriveHours");
+  const fullEl = document.getElementById("bacFullHours");
+  const gauge = document.getElementById("gaugeCircle");
+
+  if (bacNumEl) bacNumEl.textContent = currentBac.toFixed(2);
+  if (driveEl) driveEl.textContent = `${driveHours} ч.`;
+  if (fullEl) fullEl.textContent = `${fullHours} ч.`;
+
+  // Определение стадии
+  let stage = "Абсолютная трезвость";
+  let desc = "Реакция 100%, готов к вождению и защите диссертации.";
+  let color = "#10b981";
+
+  if (currentBac > 0 && currentBac < 0.5) {
+    stage = "Легкая эйфория";
+    desc = "Подъем настроения, расслабленность, легкая тяга к душевным беседам.";
+    color = "#3b82f6";
+  } else if (currentBac >= 0.5 && currentBac < 1.0) {
+    stage = "Среднее опьянение";
+    desc = "Снижение концентрации, эмоциональные тосты, желание спеть хором.";
+    color = "#f59e0b";
+  } else if (currentBac >= 1.0 && currentBac < 1.5) {
+    stage = "Заметное опьянение";
+    desc = "Шаткая походка, автопилот включен, ключи лучше убрать в дальний карман.";
+    color = "#f97316";
+  } else if (currentBac >= 1.5 && currentBac < 2.5) {
+    stage = "Тяжелое опьянение";
+    desc = "Глубокая ночная философия, споры о геополитике, срочно нужен чай и подушка.";
+    color = "#ef4444";
+  } else if (currentBac >= 2.5) {
+    stage = "Космическая перегрузка";
+    desc = "Критическая зона! Срочно сорбенты, вода и горизонтальный покой.";
+    color = "#7f1d1d";
+  }
+
+  if (stageEl) {
+    stageEl.textContent = stage;
+    stageEl.style.color = color;
+    stageEl.style.background = `rgba(${color === '#10b981' ? '16, 185, 129' : '239, 68, 68'}, 0.2)`;
+  }
+  if (descEl) descEl.textContent = desc;
+
+  // Поворот спидометра (от -45deg до 135deg)
+  if (gauge) {
+    const deg = Math.min(135, -45 + (currentBac / 3.0) * 180);
+    gauge.style.transform = `rotate(${deg}deg)`;
+    gauge.style.borderTopColor = color;
+  }
+}
+
+// =============================================================
+// УЛЬТИМАТИВНЫЙ ФАРШ: ЗАСТОЛЬНАЯ ДУЭЛЬ (PvP)
+// =============================================================
+function initDuels() {
+  const startBtn = document.getElementById("startDuelBtn");
+  if (startBtn) {
+    startBtn.addEventListener("click", async () => {
+      startBtn.disabled = true;
+      startBtn.textContent = "🥊 Раунд 1... Раунд 2... Раунд 3...";
+
+      const creatorScore = STATE.currentResult ? STATE.currentResult.score : 100;
+      const creatorName = STATE.name || "Атлет";
+      const creatorRank = STATE.currentResult ? STATE.currentResult.rank.title : "Любитель";
+
+      try {
+        const resp = await fetch("/api/duel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            creator: { name: creatorName, score: creatorScore, rank_title: creatorRank }
+          })
+        });
+        const res = await resp.json();
+        renderDuelResult(res);
+      } catch (e) {
+        console.error("Duel error:", e);
+      } finally {
+        startBtn.disabled = false;
+        startBtn.textContent = "⚔️ Начать соревновательный поединок!";
+      }
+    });
+  }
+}
+
+function renderDuelResult(duel) {
+  const container = document.getElementById("duelRoundsContainer");
+  if (!container) return;
+
+  const f1Name = document.getElementById("duelFighter1Name");
+  const f1Score = document.getElementById("duelFighter1Score");
+  const f2Name = document.getElementById("duelFighter2Name");
+  const f2Score = document.getElementById("duelFighter2Score");
+
+  if (f1Name) f1Name.textContent = duel.creator.name;
+  if (f1Score) f1Score.textContent = `${duel.creator.score} очков (${duel.creator.rank})`;
+  if (f2Name) f2Name.textContent = duel.opponent.name;
+  if (f2Score) f2Score.textContent = `${duel.opponent.score} очков (${duel.opponent.rank})`;
+
+  let html = `<div style="text-align: center; margin-bottom: 15px; font-weight: bold; font-size: 1.2rem; color: var(--gold-glow);">${duel.comment}</div>`;
+
+  duel.rounds.forEach((r, idx) => {
+    html += `
+      <div class="duel-round-card">
+        <div style="display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 4px;">
+          <span>${r.title}</span>
+          <span style="color: var(--gold-primary);">Раунд за: ${r.round_winner}</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">${r.desc}</div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+          <span>${duel.creator.name}: <strong>${r.creator_points}</strong></span>
+          <span>${duel.opponent.name}: <strong>${r.opponent_points}</strong></span>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+  container.style.display = "block";
+}
+
+// =============================================================
+// УЛЬТИМАТИВНЫЙ ФАРШ: ЗАЛ СЛАВЫ (РЕЙТИНГ)
+// =============================================================
+async function initLeaderboard() {
+  await fetchLeaderboard();
+
+  const refreshBtn = document.getElementById("refreshLeaderboardBtn");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", fetchLeaderboard);
+  }
+
+  const saveBtn = document.getElementById("saveToHallOfFameBtn");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", async () => {
+      if (!STATE.currentResult) {
+        alert("Сначала рассчитайте норматив во вкладке «Нормативы»!");
+        return;
+      }
+      try {
+        const payload = {
+          name: STATE.name,
+          weight: STATE.weight,
+          gender: STATE.gender,
+          rank: STATE.currentResult.rank,
+          score: STATE.currentResult.score,
+          pure_ethanol_g: STATE.currentResult.pure_ethanol_g,
+          est_bac_promille: STATE.currentResult.est_bac_promille,
+          disciplines: STATE.currentResult.disciplines,
+          order_num: STATE.currentResult.order_num,
+          verified: STATE.detectorVerified
+        };
+        const resp = await fetch("/api/athlete/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const res = await resp.json();
+        alert(`🎉 Рекорд спортсмена ${res.name} (${res.score} очков) успешно внесен в Зал Славы!`);
+        fetchLeaderboard();
+      } catch (e) {
+        alert("Ошибка при сохранении рекорда: " + e);
+      }
+    });
+  }
+}
+
+async function fetchLeaderboard() {
+  const tbody = document.getElementById("leaderboardBody");
+  if (!tbody) return;
+
+  try {
+    const resp = await fetch("/api/leaderboard?limit=20");
+    const data = await resp.json();
+
+    tbody.innerHTML = "";
+    data.forEach((a, idx) => {
+      const tr = document.createElement("tr");
+      let medal = `${idx + 1}`;
+      if (idx === 0) medal = `<span class="leader-medal-1">🥇 1</span>`;
+      else if (idx === 1) medal = `<span class="leader-medal-2">🥈 2</span>`;
+      else if (idx === 2) medal = `<span class="leader-medal-3">🥉 3</span>`;
+
+      const shield = a.verified ? ` <span title="Проверен Детектором" style="color: #10b981;">🛡️</span>` : ``;
+
+      tr.innerHTML = `
+        <td>${medal}</td>
+        <td><strong>${a.name}</strong>${shield}</td>
+        <td>${a.rank_title}</td>
+        <td style="color: var(--gold-glow); font-weight: bold;">${a.score}</td>
+        <td style="font-size: 0.8rem; color: var(--text-muted);">${a.discipline || '-'}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    console.error("Leaderboard fetch error:", e);
+  }
+}
+
+// =============================================================
+// УЛЬТИМАТИВНЫЙ ФАРШ: SOS, ТОСТЫ И ФЕЙКОВЫЙ ЗВОНОК
+// =============================================================
+let TOASTS_LIST = [];
+let currentToastIdx = 0;
+let ringtoneAudioContext = null;
+let ringtoneInterval = null;
+let callTimerInterval = null;
+
+async function initSosAndToasts() {
+  // Загрузка протокола похмелья
+  try {
+    const resp = await fetch("/api/hangover");
+    const data = await resp.json();
+    renderHangoverStages(data.stages);
+  } catch (e) {
+    console.error("Hangover protocol error:", e);
+  }
+
+  // Загрузка тостов
+  try {
+    const resp = await fetch("/api/toasts");
+    TOASTS_LIST = await resp.json();
+    if (TOASTS_LIST.length > 0) renderToast(TOASTS_LIST[0]);
+  } catch (e) {
+    console.error("Toasts error:", e);
+  }
+
+  const nextToastBtn = document.getElementById("nextToastBtn");
+  if (nextToastBtn) {
+    nextToastBtn.addEventListener("click", () => {
+      currentToastIdx = (currentToastIdx + 1) % TOASTS_LIST.length;
+      renderToast(TOASTS_LIST[currentToastIdx]);
+    });
+  }
+
+  const copyToastBtn = document.getElementById("copyToastBtn");
+  if (copyToastBtn) {
+    copyToastBtn.addEventListener("click", () => {
+      const toastText = document.getElementById("toastText");
+      if (toastText) {
+        navigator.clipboard.writeText(toastText.textContent);
+        alert("Тост скопирован в буфер обмена!");
+      }
+    });
+  }
+
+  // Фейковый звонок
+  const callBtn = document.getElementById("triggerFakeCallBtn");
+  const callModal = document.getElementById("fakeCallModal");
+  const acceptBtn = document.getElementById("acceptCallBtn");
+  const rejectBtn = document.getElementById("rejectCallBtn");
+  const dialogText = document.getElementById("callDialogText");
+  const callTimer = document.getElementById("callTimer");
+
+  if (callBtn && callModal) {
+    callBtn.addEventListener("click", () => {
+      callModal.style.display = "flex";
+      if (dialogText) dialogText.style.display = "none";
+      if (callTimer) callTimer.style.display = "none";
+      startTelephoneRingtone();
+    });
+  }
+
+  if (acceptBtn) {
+    acceptBtn.addEventListener("click", () => {
+      stopTelephoneRingtone();
+      if (dialogText) dialogText.style.display = "block";
+      if (callTimer) {
+        callTimer.style.display = "block";
+        let seconds = 0;
+        clearInterval(callTimerInterval);
+        callTimerInterval = setInterval(() => {
+          seconds++;
+          const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+          const s = String(seconds % 60).padStart(2, '0');
+          callTimer.textContent = `${m}:${s}`;
+        }, 1000);
+      }
+    });
+  }
+
+  if (rejectBtn && callModal) {
+    rejectBtn.addEventListener("click", () => {
+      stopTelephoneRingtone();
+      clearInterval(callTimerInterval);
+      callModal.style.display = "none";
+    });
+  }
+
+  // Отправка в Telegram
+  const sendToTgBtn = document.getElementById("sendToTgBtn");
+  if (sendToTgBtn) {
+    sendToTgBtn.addEventListener("click", () => {
+      if (!STATE.currentResult) {
+        alert("Сначала рассчитайте норматив во вкладке «Нормативы»!");
+        return;
+      }
+
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.sendData) {
+        const payload = {
+          action: "save_result",
+          result: STATE.currentResult,
+          weight: STATE.weight,
+          gender: STATE.gender,
+          verified: STATE.detectorVerified
+        };
+        window.Telegram.WebApp.sendData(JSON.stringify(payload));
+      } else {
+        alert("Корочка сохранена! Откройте приложение внутри официального Telegram-бота @gamumuFILMS_bot, чтобы получить удостоверение прямо в чат.");
+      }
+    });
+  }
+}
+
+function renderHangoverStages(stages) {
+  const container = document.getElementById("hangoverStagesContainer");
+  if (!container || !stages) return;
+
+  container.innerHTML = "";
+  stages.forEach(s => {
+    const div = document.createElement("div");
+    div.style.cssText = "background: var(--bg-card-hover); padding: 12px; border-radius: 8px; border-left: 3px solid #10b981;";
+    div.innerHTML = `
+      <div style="font-weight: bold; color: #34d399; font-size: 0.9rem; margin-bottom: 2px;">
+        ⏰ ${s.time} — ${s.title}
+      </div>
+      <div style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.5;">${s.action}</div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function renderToast(toast) {
+  const titleEl = document.getElementById("toastTitle");
+  const textEl = document.getElementById("toastText");
+  const iconEl = document.getElementById("toastIcon");
+
+  if (titleEl) titleEl.textContent = toast.title;
+  if (textEl) textEl.textContent = `«${toast.text}»`;
+  if (iconEl) iconEl.textContent = toast.icon || "🥂";
+}
+
+// Генератор телефонного рингтона через Web Audio API
+function startTelephoneRingtone() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    ringtoneAudioContext = new AudioCtx();
+
+    function playBip() {
+      if (!ringtoneAudioContext) return;
+      const osc1 = ringtoneAudioContext.createOscillator();
+      const osc2 = ringtoneAudioContext.createOscillator();
+      const gain = ringtoneAudioContext.createGain();
+
+      osc1.frequency.value = 425;
+      osc2.frequency.value = 425;
+      osc1.type = 'sine';
+      osc2.type = 'sine';
+
+      gain.gain.setValueAtTime(0.2, ringtoneAudioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ringtoneAudioContext.currentTime + 0.9);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ringtoneAudioContext.destination);
+
+      osc1.start();
+      osc2.start();
+      osc1.stop(ringtoneAudioContext.currentTime + 0.9);
+      osc2.stop(ringtoneAudioContext.currentTime + 0.9);
+    }
+
+    playBip();
+    ringtoneInterval = setInterval(playBip, 2500);
+  } catch (e) {
+    console.warn("AudioContext not supported:", e);
+  }
+}
+
+function stopTelephoneRingtone() {
+  if (ringtoneInterval) clearInterval(ringtoneInterval);
+  if (ringtoneAudioContext) {
+    try { ringtoneAudioContext.close(); } catch(e) {}
+    ringtoneAudioContext = null;
+  }
+}
+

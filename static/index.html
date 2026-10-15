@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Федерация Литрбола России — Аттестация и Выдача Разрядов</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+  <!-- Telegram WebApp SDK для запуска как Mini App -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+
+  <!-- Шапка приложения -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="logo-block">
+        <div class="logo-icon">🏆</div>
+        <div class="logo-text">
+          <h1>Федерация Литрбола</h1>
+          <p>Единая Застольная Спортивная Классификация (ЕЗСК)</p>
+        </div>
+      </div>
+      <div class="tg-badge" id="tgUserBadge">
+        <span>●</span> Официальная ВАК
+      </div>
+    </div>
+  </header>
+
+  <!-- Вкладки навигации -->
+  <nav class="tabs-nav">
+    <div class="tabs-container">
+      <button type="button" class="tab-btn active" data-tab="tab-calc">
+        🧮 <span>Нормативы</span>
+      </button>
+      <button type="button" class="tab-btn" data-tab="tab-detector">
+        🎯 <span>Детектор</span>
+      </button>
+      <button type="button" class="tab-btn" data-tab="tab-cert">
+        🪪 <span>Паспорт ВФЛ</span>
+      </button>
+      <button type="button" class="tab-btn" data-tab="tab-bac">
+        🧪 <span>Трезвомер</span>
+      </button>
+      <button type="button" class="tab-btn" data-tab="tab-duel">
+        ⚔️ <span>Дуэли</span>
+      </button>
+      <button type="button" class="tab-btn" data-tab="tab-top">
+        🏆 <span>Зал Славы</span>
+      </button>
+      <button type="button" class="tab-btn" data-tab="tab-sos">
+        🚑 <span>SOS и Тосты</span>
+      </button>
+      <button type="button" class="tab-btn" data-tab="tab-quiz">
+        🎓 <span>Экзамен</span>
+      </button>
+      <button type="button" class="tab-btn" data-tab="tab-rules">
+        📜 <span>Регламент</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Основной контент -->
+  <main class="main-content">
+
+    <!-- ВКЛАДКА 1: КАЛЬКУЛЯТОР НОРМАТИВА -->
+    <section id="tab-calc" class="tab-pane active">
+      
+      <!-- Профиль атлета -->
+      <div class="card">
+        <div class="card-title">
+          <span>1. Карточка спортсмена</span>
+          <span class="badge">Анкета</span>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="athleteName">ФИО / Позывной за столом</label>
+            <input type="text" id="athleteName" class="form-input" value="Атлетов Иван" placeholder="Например: Иван Грозный">
+          </div>
+          <div class="form-group">
+            <label for="athleteWeight">Боевой вес (кг)</label>
+            <input type="number" id="athleteWeight" class="form-input" value="80" min="40" max="250">
+          </div>
+          <div class="form-group">
+            <label for="athleteGender">Категория</label>
+            <select id="athleteGender" class="form-select">
+              <option value="m">Мужской дивизион</option>
+              <option value="f">Женский дивизион</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 10px;">
+          <label>Спортивный стаж и квалификация</label>
+          <div class="options-grid">
+            <label class="option-card">
+              <input type="radio" name="experience" value="junior">
+              <div class="option-card-content">
+                <span class="option-card-title">🍼 Первокурсник</span>
+                <span class="option-card-desc">Только вступил в студенческую лигу</span>
+              </div>
+            </label>
+            <label class="option-card selected">
+              <input type="radio" name="experience" value="amateur" checked>
+              <div class="option-card-content">
+                <span class="option-card-title">🍺 Любитель</span>
+                <span class="option-card-desc">Пятничный боец со стажем</span>
+              </div>
+            </label>
+            <label class="option-card">
+              <input type="radio" name="experience" value="experienced">
+              <div class="option-card-content">
+                <span class="option-card-title">🥃 Опытный стайер</span>
+                <span class="option-card-desc">Знает всех барменов района в лицо</span>
+              </div>
+            </label>
+            <label class="option-card">
+              <input type="radio" name="experience" value="veteran">
+              <div class="option-card-content">
+                <span class="option-card-title">👑 Ветеран гаражной лиги</span>
+                <span class="option-card-desc">Помнит пиво по 1 рублю и советские тосты</span>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Арсенал напитков -->
+      <div class="card">
+        <div class="card-title">
+          <span>2. Соревновательный арсенал</span>
+          <span class="badge">Выпитое</span>
+        </div>
+        
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+          Быстрый выбор дисциплин:
+        </p>
+        <div class="preset-buttons" id="presetButtons">
+          <!-- Генерируются JS -->
+        </div>
+
+        <!-- Таблица выбранных напитков -->
+        <div class="drinks-table-container">
+          <table class="drinks-table" id="drinksTable">
+            <thead>
+              <tr>
+                <th>Дисциплина</th>
+                <th>Объем (мл)</th>
+                <th>Крепость %</th>
+                <th>Кол-во</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="drinksList">
+              <!-- Строки напитков -->
+            </tbody>
+          </table>
+        </div>
+
+        <button type="button" class="btn-secondary" id="addCustomDrinkBtn" style="margin-top: 10px;">
+          ➕ Добавить авторский напиток / коктейль
+        </button>
+      </div>
+
+      <!-- Закуска и темп -->
+      <div class="card">
+        <div class="card-title">
+          <span>3. Стратегия застолья</span>
+          <span class="badge">Факторы</span>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="hoursInput">Длительность соревнований (часов): <span id="hoursVal" style="color: var(--gold-primary); font-weight: bold;">3.0</span></label>
+            <input type="range" id="hoursInput" class="range-slider" min="0.5" max="16" step="0.5" value="3.0">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
+              <span>30 мин (Спринт)</span>
+              <span>4 часа (Классика)</span>
+              <span>16 часов (Марафон)</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Качество закуски (буфер)</label>
+            <div class="options-grid" style="grid-template-columns: repeat(2, 1fr);">
+              <label class="option-card">
+                <input type="radio" name="snack" value="empty">
+                <div class="option-card-content">
+                  <span class="option-card-title">🕳️ Натощак</span>
+                  <span class="option-card-desc">Повышенная сложность (+35% очков)</span>
+                </div>
+              </label>
+              <label class="option-card">
+                <input type="radio" name="snack" value="light">
+                <div class="option-card-content">
+                  <span class="option-card-title">🥜 Чипсы / Орешки</span>
+                  <span class="option-card-desc">Легкий снек (+10% очков)</span>
+                </div>
+              </label>
+              <label class="option-card selected">
+                <input type="radio" name="snack" value="medium" checked>
+                <div class="option-card-content">
+                  <span class="option-card-title">🥪 Пицца / Бургеры</span>
+                  <span class="option-card-desc">Стандартный застольный буфер</span>
+                </div>
+              </label>
+              <label class="option-card">
+                <input type="radio" name="snack" value="heavy">
+                <div class="option-card-content">
+                  <span class="option-card-title">🍖 Борщ, сало, шашлык</span>
+                  <span class="option-card-desc">Бронежилет для печени (-15% очков)</span>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Штрафные санкции -->
+      <div class="card">
+        <div class="card-title">
+          <span>4. Штрафы и происшествия</span>
+          <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">Фолы</span>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px;">
+          Отметьте честно (проверяется Детектором):
+        </p>
+        <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+            <input type="checkbox" id="penVomited" class="form-checkbox">
+            <span>🤮 Досрочный Ихтиандр (-150)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+            <input type="checkbox" id="penFellAsleep" class="form-checkbox">
+            <span>🥗 Сон в салате (-40)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+            <input type="checkbox" id="penCalledEx" class="form-checkbox">
+            <span>📵 Звонок бывшим (-50)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+            <input type="checkbox" id="penLostItems" class="form-checkbox">
+            <span>🔑 Потеря ключей/карты (-30)</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Кнопка расчета -->
+      <div style="margin: 20px 0;">
+        <button type="button" class="btn-primary" id="calculateBtn">
+          ⚡ Рассчитать разряд и судейский протокол
+        </button>
+      </div>
+
+      <!-- Результат расчета -->
+      <div id="calcResultContainer" style="display: none;">
+        <div class="card" style="border: 2px solid var(--gold-primary); background: linear-gradient(180deg, #1e2230 0%, #151822 100%);">
+          <div class="card-title">
+            <span>Решение Аттестационной Комиссии ВФЛ</span>
+            <span class="badge" style="background: #10b981; color: #fff;">ПРОТОКОЛ</span>
+          </div>
+
+          <div style="text-align: center; margin: 15px 0;">
+            <div id="resBadge" style="font-size: 4rem; filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.5));">🏆</div>
+            <h2 id="resRankTitle" style="color: var(--gold-primary); font-size: 1.6rem; margin-top: 5px;">-</h2>
+            <p id="resDiscipline" style="color: #60a5fa; font-weight: 600; font-size: 0.95rem; margin-top: 4px;">-</p>
+            <p id="resDescription" style="color: var(--text-muted); font-size: 0.85rem; max-width: 600px; margin: 10px auto 0;">-</p>
+          </div>
+
+          <div class="stats-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 20px 0;">
+            <div class="stat-box" style="background: var(--bg-card); padding: 12px; border-radius: 8px; text-align: center; border: 1px solid var(--border-color);">
+              <div style="font-size: 0.75rem; color: var(--text-muted);">Спортивный балл</div>
+              <div id="resScore" style="font-size: 1.4rem; font-weight: bold; color: var(--gold-glow);">-</div>
+            </div>
+            <div class="stat-box" style="background: var(--bg-card); padding: 12px; border-radius: 8px; text-align: center; border: 1px solid var(--border-color);">
+              <div style="font-size: 0.75rem; color: var(--text-muted);">Чистый этанол</div>
+              <div id="resEthanol" style="font-size: 1.4rem; font-weight: bold; color: #f3f4f6;">-</div>
+            </div>
+            <div class="stat-box" style="background: var(--bg-card); padding: 12px; border-radius: 8px; text-align: center; border: 1px solid var(--border-color);">
+              <div style="font-size: 0.75rem; color: var(--text-muted);">Промилле (пик)</div>
+              <div id="resBac" style="font-size: 1.4rem; font-weight: bold; color: #f87171;">-</div>
+            </div>
+            <div class="stat-box" style="background: var(--bg-card); padding: 12px; border-radius: 8px; text-align: center; border: 1px solid var(--border-color);">
+              <div style="font-size: 0.75rem; color: var(--text-muted);">Вытрезвление</div>
+              <div id="resSober" style="font-size: 1.4rem; font-weight: bold; color: #34d399;">-</div>
+            </div>
+          </div>
+
+          <div id="resPenaltiesContainer" style="display: none; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 10px; margin-bottom: 15px;">
+            <div style="color: #f87171; font-weight: bold; font-size: 0.85rem; margin-bottom: 4px;">⚠️ Зафиксированы штрафные баллы:</div>
+            <ul id="resPenaltiesList" style="padding-left: 20px; font-size: 0.8rem; color: #fca5a5;"></ul>
+          </div>
+
+          <div style="background: rgba(245, 158, 11, 0.1); border-left: 3px solid var(--gold-primary); padding: 10px 14px; border-radius: 4px; font-size: 0.85rem;">
+            <strong>🌅 Утренний прогноз:</strong> <span id="resMorning">-</span>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap;">
+            <button type="button" class="btn-primary" id="goToDetectorBtn" style="flex: 1; min-width: 200px;">
+              🎯 Пройти Детектор Пиздежа (Верификация)
+            </button>
+            <button type="button" class="btn-secondary" id="goToCertBtn" style="flex: 1; min-width: 200px;">
+              🪪 Посмотреть Паспорт и Корочку
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ВКЛАДКА 2: ДЕТЕКТОР ПИЗДЕЖА -->
+    <section id="tab-detector" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Полевой Допинг-Контроль (Детектор Пиздежа)</span>
+          <span class="badge" style="background: #3b82f6;">АНТИ-ЧИТ</span>
+        </div>
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 15px;">
+          Чтобы корочка имела официальный юридический статус среди собутыльников, атлет обязан подтвердить моторику, ясность мысли и предоставить вещдоки.
+        </p>
+
+        <!-- Тест 1: Кассовая Алко-Математика -->
+        <div class="detector-step" id="detStep1" style="background: var(--bg-card-hover); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 15px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span style="font-weight: bold; color: var(--gold-primary);">Тест 1: Ночная сдача в ларьке</span>
+            <span id="mathTimer" style="font-family: monospace; background: #ef4444; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">10.0с</span>
+          </div>
+          <p id="mathQuestion" style="font-size: 1.1rem; margin-bottom: 12px; font-weight: 600;">Сколько будет 24 + 37?</p>
+          <div class="math-options" id="mathOptions" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+            <!-- Варианты генерируются -->
+          </div>
+        </div>
+
+        <!-- Тест 2: Моторный тремор рук -->
+        <div class="detector-step" id="detStep2" style="background: var(--bg-card-hover); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 15px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span style="font-weight: bold; color: #60a5fa;">Тест 2: Стоп-Кран (Проверка тремора и реакции)</span>
+            <span id="reactionStatus" style="font-size: 0.8rem; color: var(--text-muted);">Ожидание старта</span>
+          </div>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+            Когда зеленый сигнал загорится — максимально быстро нажмите кнопку по центру!
+          </p>
+          <div id="reactionBox" style="height: 100px; border-radius: 8px; background: #374151; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: bold; cursor: pointer; transition: background 0.1s;">
+            Нажмите, чтобы приготовиться...
+          </div>
+        </div>
+
+        <!-- Тест 3: Фото-контроль тары -->
+        <div class="detector-step" id="detStep3" style="background: var(--bg-card-hover); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color);">
+          <span style="font-weight: bold; color: #34d399; display: block; margin-bottom: 8px;">Тест 3: Вещдоки (Фото-фиксация тары или чека)</span>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+            Загрузите фото пустой тары или нажмите «Тара сдана», если вещдоки уже утилизированы.
+          </p>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <input type="file" id="detectorPhotoInput" class="form-input" accept="image/*" style="flex: 1;">
+            <button type="button" class="btn-secondary" id="skipPhotoBtn" style="width: auto;">
+              Тара утилизирована
+            </button>
+          </div>
+          <div id="photoAnalysisMsg" style="display: none; margin-top: 10px; font-size: 0.85rem; color: #10b981;">
+            ✓ Нейросеть ВАК подтвердила подлинность вещдоков!
+          </div>
+        </div>
+
+        <!-- Итог детектора -->
+        <div id="detectorSummary" style="display: none; margin-top: 20px; padding: 15px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; text-align: center;">
+          <h3 style="color: #10b981; margin-bottom: 6px;">🎉 ПРОВЕРКА ДЕТЕКТОРОМ УСПЕШНО ПРОЙДЕНА!</h3>
+          <p style="font-size: 0.85rem; color: var(--text-main);">
+            Ваш результат верифицирован. К удостоверению прикреплен штамп высшей пробы.
+          </p>
+          <button type="button" class="btn-primary" id="detDoneGoCertBtn" style="margin-top: 12px; width: auto; padding: 10px 24px;">
+            Перейти к оформлению корочки »
+          </button>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ВКЛАДКА 3: СПОРТИВНЫЙ ПАСПОРТ И КОРОЧКА -->
+    <section id="tab-cert" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Спортивный Паспорт и Корочка Атлета</span>
+          <span class="badge">Удостоверение</span>
+        </div>
+
+        <div class="form-grid" style="margin-bottom: 15px;">
+          <div class="form-group">
+            <label>Стиль аватара спортсмена</label>
+            <select id="avatarPresetSelect" class="form-select">
+              <option value="barman">Хитрый бармен</option>
+              <option value="hero">Советский плакатный атлет</option>
+              <option value="detective">Сыщик после полуночи</option>
+              <option value="philosopher">Кухонный философ</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="customPhotoInput">Или загрузить свое фото</label>
+            <input type="file" id="customPhotoInput" class="form-input" accept="image/*">
+          </div>
+        </div>
+
+        <!-- Превью корочки на Canvas -->
+        <div class="cert-wrapper">
+          <div class="cert-canvas-container" style="box-shadow: 0 10px 30px rgba(0,0,0,0.6); border-radius: 12px; overflow: hidden;">
+            <canvas id="certCanvas" width="1200" height="800" style="width: 100%; height: auto; display: block;"></canvas>
+          </div>
+
+          <!-- Кнопки действий -->
+          <div class="cert-controls" style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
+            <button type="button" id="downloadCertBtn" class="btn-primary" style="flex: 1; min-width: 180px;">
+              📥 Скачать корочку (PNG)
+            </button>
+            <button type="button" id="sendToTgBtn" class="btn-secondary" style="flex: 1; min-width: 180px; background: #2563eb; color: #fff;">
+              📲 Отправить в Telegram-чат
+            </button>
+            <button type="button" id="saveToHallOfFameBtn" class="btn-secondary" style="flex: 1; min-width: 180px;">
+              💾 Записать в Зал Славы
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ВКЛАДКА 4: АЛКО-ТРЕЗВОМЕР И BAC (ПРОМИЛЛЕ) -->
+    <section id="tab-bac" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Алко-Трезвомер (Формула Эрика Видмарка)</span>
+          <span class="badge" style="background: #8b5cf6;">БИОХИМИЯ</span>
+        </div>
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 15px;">
+          Точный расчет концентрации алкоголя в крови (‰) и времени полного вытрезвления на основе массы тела и метаболизма печени.
+        </p>
+
+        <!-- Спидометр промилле -->
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px 0;">
+          <div style="position: relative; width: 220px; height: 120px; overflow: hidden;">
+            <div id="gaugeCircle" style="width: 220px; height: 220px; border-radius: 50%; border: 18px solid #374151; border-top-color: #10b981; border-right-color: #3b82f6; transform: rotate(-45deg); transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+            <div style="position: absolute; bottom: 0; left: 0; right: 0; text-align: center;">
+              <span id="bacNumber" style="font-size: 2.4rem; font-weight: 900; color: #10b981;">0.00</span>
+              <span style="font-size: 1rem; color: var(--text-muted); margin-left: 2px;">‰</span>
+            </div>
+          </div>
+          <div id="bacStageBadge" style="margin-top: 10px; padding: 4px 14px; border-radius: 20px; font-weight: 700; font-size: 0.85rem; background: rgba(16, 185, 129, 0.2); color: #10b981;">
+            Абсолютная трезвость
+          </div>
+          <p id="bacStageDesc" style="font-size: 0.82rem; color: var(--text-muted); text-align: center; max-width: 450px; margin-top: 6px;">
+            Реакция 100%, готов к вождению и защите диссертации.
+          </p>
+        </div>
+
+        <!-- Таймеры за руль и трезвости -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 20px 0;">
+          <div style="background: var(--bg-card-hover); padding: 14px; border-radius: 8px; border-left: 4px solid #f59e0b;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">🚗 Когда можно за руль (норма РФ 0.16 мг/л)</div>
+            <div id="bacDriveHours" style="font-size: 1.5rem; font-weight: bold; color: #fbbf24; margin-top: 4px;">0.0 ч.</div>
+            <div style="font-size: 0.72rem; color: #9ca3af; margin-top: 2px;">Запас безопасности</div>
+          </div>
+          <div style="background: var(--bg-card-hover); padding: 14px; border-radius: 8px; border-left: 4px solid #10b981;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">🧘 Полное вытрезвление (0.00 ‰)</div>
+            <div id="bacFullHours" style="font-size: 1.5rem; font-weight: bold; color: #34d399; margin-top: 4px;">0.0 ч.</div>
+            <div style="font-size: 0.72rem; color: #9ca3af; margin-top: 2px;">Печень свободна</div>
+          </div>
+        </div>
+
+        <!-- Интерактивный ползунок прошедших часов -->
+        <div class="form-group" style="background: var(--bg-input); padding: 14px; border-radius: 8px;">
+          <label for="bacElapsedSlider">Сколько часов прошло с первого бокала: <span id="bacElapsedVal" style="color: var(--gold-primary); font-weight: bold;">0 ч.</span></label>
+          <input type="range" id="bacElapsedSlider" class="range-slider" min="0" max="24" step="0.5" value="0">
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ВКЛАДКА 5: ЗАСТОЛЬНАЯ ДУЭЛЬ (PvP) -->
+    <section id="tab-duel" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Застольная Дуэль (PvP Баттл)</span>
+          <span class="badge" style="background: #ef4444;">АРЕНА</span>
+        </div>
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 15px;">
+          Сразитесь в 3-раундовом поединке за звание Альфа-Атлета застолья. Оценивается темп, плотность тостов и стойкость автопилота.
+        </p>
+
+        <!-- Арена дуэли -->
+        <div style="display: flex; align-items: center; justify-content: space-around; padding: 20px; background: var(--bg-card-hover); border-radius: 12px; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+          <div style="text-align: center; flex: 1; min-width: 120px;">
+            <div style="font-size: 3rem;">🤠</div>
+            <div id="duelFighter1Name" style="font-weight: bold; font-size: 1.1rem; color: var(--gold-glow); margin-top: 4px;">Вы (Атлет)</div>
+            <div id="duelFighter1Score" style="font-size: 0.8rem; color: var(--text-muted);">100 очков</div>
+          </div>
+          <div style="font-size: 2rem; font-weight: 900; color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);">
+            VS
+          </div>
+          <div style="text-align: center; flex: 1; min-width: 120px;">
+            <div style="font-size: 3rem;">🤖</div>
+            <div id="duelFighter2Name" style="font-weight: bold; font-size: 1.1rem; color: #60a5fa; margin-top: 4px;">Михалыч (Гараж)</div>
+            <div id="duelFighter2Score" style="font-size: 0.8rem; color: var(--text-muted);">120 очков</div>
+          </div>
+        </div>
+
+        <button type="button" class="btn-primary" id="startDuelBtn" style="background: linear-gradient(90deg, #ef4444, #f59e0b);">
+          ⚔️ Начать соревновательный поединок!
+        </button>
+
+        <!-- Протокол раундов -->
+        <div id="duelRoundsContainer" style="display: none; margin-top: 20px;">
+          <!-- Карточки раундов -->
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ВКЛАДКА 6: ЗАЛ СЛАВЫ (РЕЙТИНГ) -->
+    <section id="tab-top" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Зал Славы Федерации Литрбола</span>
+          <span class="badge" style="background: #f59e0b; color: #000;">ТОП-20</span>
+        </div>
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 15px;">
+          Официальный рейтинг атлетов России. Значок 🛡️ означает прохождение Детектора Пиздежа.
+        </p>
+
+        <div style="overflow-x: auto;">
+          <table class="ranks-table" id="leaderboardTable">
+            <thead>
+              <tr>
+                <th>Место</th>
+                <th>Атлет</th>
+                <th>Разряд ЕЗСК</th>
+                <th>Очки</th>
+                <th>Дисциплина</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboardBody">
+              <!-- Заполняется через JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <button type="button" class="btn-secondary" id="refreshLeaderboardBtn" style="margin-top: 15px;">
+          🔄 Обновить турнирную таблицу
+        </button>
+      </div>
+    </section>
+
+    <!-- ВКЛАДКА 7: SOS И ТОСТЫ -->
+    <section id="tab-sos" class="tab-pane">
+      
+      <!-- Антипохмельный протокол -->
+      <div class="card" style="border-left: 4px solid #10b981;">
+        <div class="card-title">
+          <span>Антипохмельный Протокол Спасения</span>
+          <span class="badge" style="background: #10b981;">РЕАНИМАЦИЯ</span>
+        </div>
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 15px;">
+          Пошаговый медицинский алгоритм возвращения в рабочее русло без потерь:
+        </p>
+        <div id="hangoverStagesContainer" style="display: flex; flex-direction: column; gap: 10px;">
+          <!-- Заполняется JS -->
+        </div>
+
+        <!-- Фейковый звонок -->
+        <div style="margin-top: 20px; background: var(--bg-card-hover); padding: 16px; border-radius: 8px; border: 1px dashed #ef4444;">
+          <h4 style="color: #f87171; margin-bottom: 6px;">🚨 Кнопка «Эвакуация из бара» (Фейковый звонок)</h4>
+          <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 10px;">
+            Вам нужно срочно уйти, но друзья не отпускают? Нажмите кнопку: телефон сымитирует срочный звонок от руководства с рингтоном и диалогом!
+          </p>
+          <button type="button" class="btn-primary" id="triggerFakeCallBtn" style="background: #ef4444; width: auto; padding: 10px 24px;">
+            📞 Включить спасительный звонок
+          </button>
+        </div>
+      </div>
+
+      <!-- Генератор тостов -->
+      <div class="card">
+        <div class="card-title">
+          <span>Генератор Официальных Тостов ВФЛ</span>
+          <span class="badge">ТОСТЫ</span>
+        </div>
+        <div style="background: var(--bg-card-hover); padding: 20px; border-radius: 8px; text-align: center; border: 1px solid var(--border-color); margin-bottom: 15px;">
+          <div id="toastIcon" style="font-size: 2.5rem; margin-bottom: 10px;">🥂</div>
+          <h3 id="toastTitle" style="color: var(--gold-primary); margin-bottom: 8px;">За чистый спорт</h3>
+          <p id="toastText" style="font-size: 1.05rem; line-height: 1.6; font-style: italic; color: #f3f4f6;">
+            «Поднимем бокалы за то, чтобы наш спорт оставался честным, закуска — сытной, а судейская коллегия никогда не путала пиво с лимонадом! За ВФЛ!»
+          </p>
+        </div>
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button type="button" class="btn-primary" id="nextToastBtn" style="flex: 1;">
+            🎲 Следующий тост
+          </button>
+          <button type="button" class="btn-secondary" id="copyToastBtn" style="width: auto;">
+            📋 Скопировать
+          </button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ВКЛАДКА 8: ЭКЗАМЕН ВАК -->
+    <section id="tab-quiz" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Теоретический Экзамен Высшей Аттестационной Комиссии</span>
+          <span class="badge">ТЕОРИЯ</span>
+        </div>
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 15px;">
+          Проверьте знание застольного этикета, техники безопасности и биологических процессов. 10 вопросов с судейскими комментариями.
+        </p>
+
+        <div id="quizContainer">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <span id="quizProgress" style="font-size: 0.85rem; color: var(--gold-primary); font-weight: bold;">Вопрос 1 из 10</span>
+            <span id="quizCurrentScore" style="font-size: 0.85rem; color: var(--text-muted);">Баллы: 0</span>
+          </div>
+          <div style="height: 6px; background: #374151; border-radius: 3px; overflow: hidden; margin-bottom: 15px;">
+            <div id="quizProgressBar" style="width: 10%; height: 100%; background: var(--gold-primary); transition: width 0.3s;"></div>
+          </div>
+          
+          <h3 id="quizQuestionText" style="font-size: 1.1rem; margin-bottom: 15px;">Загрузка вопросов...</h3>
+          <div id="quizAnswersContainer" style="display: flex; flex-direction: column; gap: 8px;">
+            <!-- Кнопки ответов -->
+          </div>
+        </div>
+
+        <div id="quizResultContainer" style="display: none; text-align: center; padding: 20px 0;">
+          <div style="font-size: 4rem;">🎓</div>
+          <h2 id="quizFinalTitle" style="color: var(--gold-primary); margin: 10px 0;">Экзамен сдан!</h2>
+          <p id="quizFinalScore" style="font-size: 1.1rem; color: var(--text-main);">-</p>
+          <button type="button" class="btn-primary" id="restartQuizBtn" style="margin-top: 15px; width: auto; padding: 10px 28px;">
+            Сдать заново
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ВКЛАДКА 9: РЕГЛАМЕНТ И НОРМАТИВЫ -->
+    <section id="tab-rules" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Таблица нормативов ЕЗСК</span>
+          <span class="badge">Классификация</span>
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="ranks-table">
+            <thead>
+              <tr>
+                <th>Разряд / Звание</th>
+                <th>Порог очков</th>
+                <th>Характеристика атлета</th>
+                <th>Утренний протокол</th>
+              </tr>
+            </thead>
+            <tbody id="ranksTableBody">
+              <!-- Заполняется через API -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Кодекс безопасности -->
+      <div class="card" style="border-left: 4px solid var(--gold-primary);">
+        <div class="card-title">
+          <span>Золотые заповеди спортсмена-литрболиста</span>
+          <span class="badge">Безопасность</span>
+        </div>
+        <ul style="padding-left: 20px; font-size: 0.9rem; line-height: 1.8; color: var(--text-main);">
+          <li><strong>Не понижай градус:</strong> классическая аксиома, предотвращающая техническое поражение.</li>
+          <li><strong>Закон стакана воды:</strong> каждый бокал алкоголя должен сопровождаться стаканом чистой негазированной воды.</li>
+          <li><strong>Никакого вождения:</strong> сел за руль под градусом — пожизненная дисквалификация и презрение трибун. Вызывай такси!</li>
+          <li><strong>Заботься о товарище:</strong> видишь, что друг поплыл — подмени стопку на воду и закажи ему горячий суп.</li>
+          <li><strong>Береги смартфон:</strong> после полуночи звонки бывшим категорически запрещены регламентом Международного союза.</li>
+        </ul>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Модальное окно фейкового звонка -->
+  <div id="fakeCallModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 999; flex-direction: column; align-items: center; justify-content: space-between; padding: 60px 20px;">
+    <div style="text-align: center;">
+      <div style="font-size: 0.9rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 2px;">Входящий вызов</div>
+      <div style="font-size: 1.8rem; font-weight: 800; color: #fff; margin-top: 8px;">Шеф / Работа (Срочно)</div>
+      <div style="font-size: 1rem; color: #3b82f6; margin-top: 4px;">+7 (999) 000-ФЕДЕРАЦИЯ</div>
+      <div id="callTimer" style="display: none; font-size: 1.2rem; color: #10b981; margin-top: 10px; font-family: monospace;">00:00</div>
+    </div>
+
+    <!-- Аватар звонящего -->
+    <div style="width: 140px; height: 140px; border-radius: 50%; background: #1e293b; display: flex; align-items: center; justify-content: center; font-size: 4rem; border: 3px solid #ef4444; box-shadow: 0 0 30px rgba(239, 68, 68, 0.4); animation: pulseCall 1.5s infinite;">
+      👔
+    </div>
+
+    <!-- Текст диалога при ответе -->
+    <div id="callDialogText" style="display: none; max-width: 400px; text-align: center; background: rgba(30, 41, 59, 0.8); border: 1px solid #475569; padding: 15px; border-radius: 12px; font-size: 0.95rem; color: #f1f5f9;">
+      «Алло! Срочно выезжай, у нас база данных упала, сервер горит! Без тебя никак, хватай такси!»
+    </div>
+
+    <!-- Кнопки ответа/сброса -->
+    <div style="display: flex; justify-content: space-around; width: 100%; max-width: 320px;">
+      <button type="button" id="rejectCallBtn" style="width: 75px; height: 75px; border-radius: 50%; background: #ef4444; border: none; color: #fff; font-size: 2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);">
+        ✖
+      </button>
+      <button type="button" id="acceptCallBtn" style="width: 75px; height: 75px; border-radius: 50%; background: #10b981; border: none; color: #fff; font-size: 2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);">
+        📞
+      </button>
+    </div>
+  </div>
+
+  <!-- Подвал -->
+  <footer class="app-footer">
+    <p>Всероссийская Федерация Литрбола (ВФЛ) • Проект носит исключительно юмористический и сатирический характер.</p>
+    <p style="margin-top: 6px; font-size: 0.72rem; color: #6b7280;">
+      Чрезмерное употребление алкоголя вредит вашему здоровью. Знайте свою меру и отдыхайте культурно!
+    </p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
