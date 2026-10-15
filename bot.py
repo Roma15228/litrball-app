@@ -44,6 +44,30 @@ logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "")
+BOT_USERNAME = "gamumuFILMS_bot"
+
+def get_webapp_button(text: str, url: str, startapp_param: str = "", is_group: bool = False) -> InlineKeyboardButton:
+    """
+    Returns an InlineKeyboardButton compatible with both private and group chats.
+    Telegram Bot API rejects web_app=WebAppInfo() when sent in group/supergroup chats
+    with 'Bad Request: BUTTON_TYPE_INVALID'.
+    In groups, direct Telegram deep links (https://t.me/bot?startapp=...) must be used.
+    """
+    if is_group:
+        param_query = f"?startapp={startapp_param}" if startapp_param else ""
+        return InlineKeyboardButton(text=text, url=f"https://t.me/{BOT_USERNAME}{param_query}")
+    else:
+        return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))
+
+async def safe_answer(message: types.Message, text: str, reply_markup=None, parse_mode="Markdown"):
+    try:
+        await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception as e:
+        logger.warning(f"Failed to send markdown message: {e}, falling back to plain text")
+        try:
+            await message.answer(text, reply_markup=reply_markup, parse_mode=None)
+        except Exception as e2:
+            logger.error(f"Failed to send plain text message: {e2}")
 
 # FSM Состояния
 class LitrballStates(StatesGroup):
@@ -60,10 +84,10 @@ class LitrballStates(StatesGroup):
     quiz_running = State()
 
 # Кнопки главного меню
-def get_main_keyboard():
+def get_main_keyboard(is_group: bool = False):
     buttons = []
     if WEBAPP_URL:
-        buttons.append([InlineKeyboardButton(text="📲 Открыть Mini App (ВФЛ Спорт-Портал)", web_app=types.WebAppInfo(url=WEBAPP_URL))])
+        buttons.append([get_webapp_button("📲 Открыть Mini App (ВФЛ Спорт-Портал)", WEBAPP_URL, "app", is_group=is_group)])
     
     buttons.extend([
         [InlineKeyboardButton(text="🧮 Сдать норматив (Калькулятор)", callback_data="menu_calc")],
@@ -85,9 +109,11 @@ def get_main_keyboard():
 async def register_handlers(dp: Dispatcher, bot: Bot):
 
     @dp.message(CommandStart())
+    @dp.message(Command("start", "старт", prefix="/!"))
     async def cmd_start(message: types.Message, state: FSMContext):
         await state.clear()
         name = message.from_user.first_name or "Атлет"
+        is_group = message.chat.type in ['group', 'supergroup']
         text = (
             f"🏆 **Всероссийская Федерация Литрбола (ВФЛ)** приветствует вас, гражданин {name}!\n\n"
             "Здесь проходит официальная аттестация спортсменов по застольному многоборью.\n\n"
@@ -96,7 +122,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
             "караются судейской коллегией!\n\n"
             "💡 Доступно полноценное **Telegram Mini App** с 3D-паспортом, трезвомером и дуэлями!"
         )
-        await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
+        await safe_answer(message, text, reply_markup=get_main_keyboard(is_group=is_group))
 
     @dp.callback_query(F.data == "menu_main")
     async def cb_main(callback: types.CallbackQuery, state: FSMContext):
@@ -131,7 +157,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
                 
                 welcome_kb = []
                 if WEBAPP_URL:
-                    welcome_kb.append([InlineKeyboardButton(text="📲 Открыть Mini App чата", web_app=types.WebAppInfo(url=f"{WEBAPP_URL}?chat_id={chat.id}"))])
+                    welcome_kb.append([get_webapp_button("📲 Открыть Mini App чата", f"{WEBAPP_URL}?chat_id={chat.id}", f"chat_{chat.id}", is_group=True)])
                 welcome_kb.append([InlineKeyboardButton(text="🍻 Накатить пива (/drink)", callback_data="drink_act:beer:500:5.0")])
                 
                 greeting = (
@@ -143,11 +169,19 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
                     f"🍺 `/drink` [напиток] [мл] — Зафиксировать подход к снаряду (напр. `/drink пиво 500` или `/drink водка 50`)\n"
                     f"🥇 `/top` — Таблица рекордов участников этого чата\n"
                     f"📊 `/stats` — Общая статистика возлияний чата\n"
+                    f"⚔️ `/party` — Комната Застольной Зарубы (с таймером и селфи)\n"
                     f"⚔️ `/duel` — Вызов на дуэль (ответом на сообщение собутыльника)\n"
                     f"🥂 `/toast` — Официальный тост от судейской коллегии\n"
                     f"🪪 `/passport` — Спортивный паспорт ВФЛ"
                 )
-                await bot.send_message(chat.id, greeting, reply_markup=InlineKeyboardMarkup(inline_keyboard=welcome_kb), parse_mode="Markdown")
+                try:
+                    await bot.send_message(chat.id, greeting, reply_markup=InlineKeyboardMarkup(inline_keyboard=welcome_kb), parse_mode="Markdown")
+                except Exception as e:
+                    logger.warning(f"Failed to send markdown greeting: {e}, falling back to plain text")
+                    try:
+                        await bot.send_message(chat.id, greeting, reply_markup=InlineKeyboardMarkup(inline_keyboard=welcome_kb), parse_mode=None)
+                    except Exception as e2:
+                        logger.error(f"Failed to send greeting: {e2}")
 
 
     # -------------------------------------------------------------
@@ -225,7 +259,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
     # -------------------------------------------------------------
     # СПОРТИВНЫЙ ПАСПОРТ АТЛЕТА
     # -------------------------------------------------------------
-    @dp.message(Command("passport"))
+    @dp.message(Command("passport", "паспорт", "корочка", prefix="/!"))
     @dp.callback_query(F.data == "menu_passport")
     async def show_passport(event: types.Message | types.CallbackQuery):
         user = event.from_user
@@ -317,7 +351,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
     # -------------------------------------------------------------
     # ЗАЛ СЛАВЫ / ТОП ЧАТА
     # -------------------------------------------------------------
-    @dp.message(Command("top"))
+    @dp.message(Command("top", "топ", "лидеры", "зал", prefix="/!"))
     @dp.callback_query(F.data == "menu_top")
     async def show_top(event: types.Message | types.CallbackQuery):
         if isinstance(event, types.CallbackQuery):
@@ -348,8 +382,8 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
                 )
                 kb_btns = []
                 if WEBAPP_URL:
-                    kb_btns.append([InlineKeyboardButton(text="📲 Открыть Mini App чата", web_app=types.WebAppInfo(url=f"{WEBAPP_URL}?chat_id={chat_id}"))])
-                await msg.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_btns), parse_mode="Markdown")
+                    kb_btns.append([get_webapp_button("📲 Открыть Mini App чата", f"{WEBAPP_URL}?chat_id={chat_id}", f"chat_{chat_id}", is_group=is_group)])
+                await safe_answer(msg, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_btns))
                 return
 
             lines = [f"🏆 **РЕЙТИНГ АТЛЕТОВ ЧАТА «{chat_title}» (ТОП-10):**\n"]
@@ -362,8 +396,8 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
 
             kb_btns = []
             if WEBAPP_URL:
-                kb_btns.append([InlineKeyboardButton(text="📲 Открыть Mini App чата", web_app=types.WebAppInfo(url=f"{WEBAPP_URL}?chat_id={chat_id}"))])
-            await msg.answer("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_btns), parse_mode="Markdown")
+                kb_btns.append([get_webapp_button("📲 Открыть Mini App чата", f"{WEBAPP_URL}?chat_id={chat_id}", f"chat_{chat_id}", is_group=is_group)])
+            await safe_answer(msg, "\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_btns))
         else:
             # Личный чат — глобальный Зал Славы (только реальные атлеты)
             leaders = database.get_leaderboard(limit=10)
@@ -398,7 +432,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
     # -------------------------------------------------------------
     # СТАТИСТИКА ЧАТА (/stats)
     # -------------------------------------------------------------
-    @dp.message(Command("stats"))
+    @dp.message(Command("stats", "стата", "статистика", prefix="/!"))
     async def cmd_stats(message: types.Message):
         chat = message.chat
         if chat.type in ['group', 'supergroup']:
@@ -409,7 +443,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
                 pass
             stats = database.get_chat_stats(chat.id)
             if not stats:
-                await message.answer("Статистика этого чата еще формируется. Напишите `/drink`!")
+                await safe_answer(message, "Статистика этого чата еще формируется. Напишите `/drink`!")
                 return
             
             vodka_bottles = round(stats['total_ethanol_g'] / (500 * 0.40 * 0.789), 1)
@@ -428,19 +462,23 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
             )
             kb = []
             if WEBAPP_URL:
-                kb.append([InlineKeyboardButton(text="📲 Открыть Mini App чата", web_app=types.WebAppInfo(url=f"{WEBAPP_URL}?chat_id={chat.id}"))])
-            await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="Markdown")
+                kb.append([get_webapp_button("📲 Открыть Mini App чата", f"{WEBAPP_URL}?chat_id={chat.id}", f"chat_{chat.id}", is_group=True)])
+            await safe_answer(message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
         else:
-            await message.answer("📊 Команда `/stats` показывает сводку по чату. Добавьте бота в группу с друзьями!")
+            await safe_answer(message, "📊 Команда `/stats` показывает сводку по чату. Добавьте бота в группу с друзьями!")
 
     # -------------------------------------------------------------
     # ФИКСАЦИЯ НАПИТКА (/drink)
     # -------------------------------------------------------------
-    @dp.message(Command("drink"))
+    @dp.message(Command("drink", "бухло", "выпить", "накатить", "налить", "дринк", prefix="/!"))
     async def cmd_drink(message: types.Message):
         user = message.from_user
         chat = message.chat
-        text_args = message.text.split()[1:] if message.text else []
+        text = message.text or ""
+        if text.startswith(("/", "!")):
+            text_args = text.split()[1:]
+        else:
+            text_args = text.split()
 
         if len(text_args) == 0:
             kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -460,7 +498,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
                     InlineKeyboardButton(text="🍹 Коктейль «Ёрш» 0.5л", callback_data="drink_act:ersh:500:12.0")
                 ]
             ])
-            await message.answer(f"🍺 Гражданин {user.first_name}, выберите подход к снаряду:", reply_markup=kb)
+            await safe_answer(message, f"🍺 Гражданин {user.first_name}, выберите подход к снаряду:", reply_markup=kb)
             return
 
         raw_input = " ".join(text_args).lower()
@@ -513,7 +551,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
             f"🏆 Очков в копилку: **{res['user_score']}**\n\n"
             f"💬 _{comment}_"
         )
-        await message.answer(resp_text, parse_mode="Markdown")
+        await safe_answer(message, resp_text)
 
     @dp.callback_query(F.data.startswith("drink_act:"))
     async def cb_drink_action(callback: types.CallbackQuery):
@@ -558,7 +596,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
     # -------------------------------------------------------------
     # ЗАСТОЛЬНАЯ ДУЭЛЬ (PvP)
     # -------------------------------------------------------------
-    @dp.message(Command("duel"))
+    @dp.message(Command("duel", "дуэль", "баттл", prefix="/!"))
     @dp.callback_query(F.data == "menu_duel")
     async def run_duel(event: types.Message | types.CallbackQuery):
         user = event.from_user
@@ -583,8 +621,12 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
             opp_rank = opp_athlete['rank_title'] if opp_athlete else "Любитель"
             opponent_data = {"name": opp_name, "score": opp_score, "rank_title": opp_rank}
 
-        wait_msg = await msg.answer("⚔️ **Вызов на дуэль принят! Судьи наполняют бокалы...**")
-        await asyncio.sleep(1.2)
+        wait_msg = None
+        try:
+            wait_msg = await msg.answer("⚔️ **Вызов на дуэль принят! Судьи наполняют бокалы...**", parse_mode="Markdown")
+        except Exception:
+            wait_msg = await msg.answer("⚔️ Вызов на дуэль принят! Судьи наполняют бокалы...")
+        await asyncio.sleep(1.0)
 
         duel_res = database.create_or_play_duel(
             creator_data={"name": user_name, "score": user_score, "rank_title": user_rank},
@@ -615,12 +657,13 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
     # -------------------------------------------------------------
     # ЗАСТОЛЬНАЯ ЗАРУБА: КОМНАТЫ (/room, /party)
     # -------------------------------------------------------------
-    @dp.message(Command("room", "party"))
+    @dp.message(Command("room", "party", "рум", "пати", "комната", "заруба", prefix="/!"))
     async def cmd_party_room(message: types.Message):
         user = message.from_user
         chat = message.chat
-        chat_id = chat.id if chat.type in ['group', 'supergroup'] else None
-        chat_title = chat.title if chat.type in ['group', 'supergroup'] else f"Заруба {user.first_name}"
+        is_group = chat.type in ['group', 'supergroup']
+        chat_id = chat.id if is_group else None
+        chat_title = chat.title if is_group else f"Заруба {user.first_name}"
 
         # Проверяем, есть ли уже активная комната для чата
         room_state = None
@@ -657,7 +700,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         app_url = f"{WEBAPP_URL}?room_id={room_id}&chat_id={chat.id}#tab-duel" if WEBAPP_URL else ""
         buttons = []
         if app_url:
-            buttons.append([InlineKeyboardButton(text="⚔️ Войти в Зарубу (Mini App)", web_app=WebAppInfo(url=app_url))])
+            buttons.append([get_webapp_button("⚔️ Войти в Зарубу (Mini App)", app_url, f"room_{room_id}", is_group=is_group)])
 
         buttons.append([
             InlineKeyboardButton(text="🔄 Обновить статус", callback_data=f"room_refresh:{room_id}"),
@@ -667,7 +710,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
             InlineKeyboardButton(text="✋ Я В СТРОЮ! (Перекличка)", callback_data=f"room_alive:{room_id}")
         ])
 
-        await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="Markdown")
+        await safe_answer(message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
     @dp.callback_query(F.data.startswith("room_refresh:"))
     async def cb_room_refresh(callback: types.CallbackQuery):
@@ -692,10 +735,11 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         if state['status'] == 'finished':
             text += f"\n\n👑 **Победитель:** {state.get('winner_name')} ({state.get('winner_score')} очков)"
 
+        is_grp = callback.message.chat.type in ['group', 'supergroup']
         app_url = f"{WEBAPP_URL}?room_id={room_id}#tab-duel" if WEBAPP_URL else ""
         buttons = []
         if app_url:
-            buttons.append([InlineKeyboardButton(text="⚔️ Открыть в Mini App", web_app=WebAppInfo(url=app_url))])
+            buttons.append([get_webapp_button("⚔️ Открыть в Mini App", app_url, f"room_{room_id}", is_group=is_grp)])
         buttons.append([
             InlineKeyboardButton(text="🔄 Обновить", callback_data=f"room_refresh:{room_id}"),
             InlineKeyboardButton(text="🚀 Старт", callback_data=f"room_start:{room_id}")
@@ -717,6 +761,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
             await callback.answer(state["error"], show_alert=True)
             return
         await callback.answer("🔥 Заруба началась! Таймер пошел!", show_alert=True)
+        is_grp = callback.message.chat.type in ['group', 'supergroup']
         app_url = f"{WEBAPP_URL}?room_id={room_id}#tab-duel" if WEBAPP_URL else ""
         text = (
             f"🔥 **ЗАРУБА #{room_id} ОФИЦИАЛЬНО НАЧАТА!** 🔥\n\n"
@@ -726,7 +771,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         )
         buttons = []
         if app_url:
-            buttons.append([InlineKeyboardButton(text="⚔️ Открыть Зарубу (Mini App)", web_app=WebAppInfo(url=app_url))])
+            buttons.append([get_webapp_button("⚔️ Открыть Зарубу (Mini App)", app_url, f"room_{room_id}", is_group=is_grp)])
         buttons.append([
             InlineKeyboardButton(text="🔄 Проверить лидерборд", callback_data=f"room_refresh:{room_id}"),
             InlineKeyboardButton(text="✋ Я В СТРОЮ!", callback_data=f"room_alive:{room_id}")
@@ -746,20 +791,22 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
     # -------------------------------------------------------------
     # БЫСТРЫЙ ВЫЗОВ MINI APP (/app)
     # -------------------------------------------------------------
-    @dp.message(Command("app"))
+    @dp.message(Command("app", "апп", "миниапп", "приложение", prefix="/!"))
     async def cmd_app(message: types.Message):
         chat = message.chat
-        chat_id = chat.id if chat.type in ['group', 'supergroup'] else None
+        is_group = chat.type in ['group', 'supergroup']
+        chat_id = chat.id if is_group else None
         app_url = f"{WEBAPP_URL}?chat_id={chat_id}" if chat_id else WEBAPP_URL
+        start_param = f"chat_{chat_id}" if chat_id else "app"
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📲 Открыть Федерацию Литрбола", web_app=WebAppInfo(url=app_url))]
+            [get_webapp_button("📲 Открыть Федерацию Литрбола", app_url, start_param, is_group=is_group)]
         ])
-        await message.answer(
+        await safe_answer(
+            message,
             f"🏆 **Всероссийская Федерация Литрбола (ВФЛ)**\n\n"
             f"Официальный спорт-портал: калькулятор промилле, 3D-паспорт, Зал Славы и Застольные Зарубы.\n"
             f"👇 Нажмите кнопку для запуска:",
-            reply_markup=kb,
-            parse_mode="Markdown"
+            reply_markup=kb
         )
 
     # -------------------------------------------------------------
@@ -776,7 +823,6 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         results = []
 
         # 1. Застольная Заруба
-        room_url = f"{WEBAPP_URL}#tab-duel" if WEBAPP_URL else ""
         results.append(
             InlineQueryResultArticle(
                 id="party_room",
@@ -796,7 +842,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
                     parse_mode="Markdown"
                 ),
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="⚔️ Войти в Зарубу (Mini App)", web_app=WebAppInfo(url=room_url))] if room_url else []
+                    [InlineKeyboardButton(text="⚔️ Войти в Зарубу (Mini App)", url=f"https://t.me/{BOT_USERNAME}?startapp=duel")]
                 ])
             )
         )
@@ -818,7 +864,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
                         parse_mode="Markdown"
                     ),
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="📲 Открыть Портал ВФЛ", web_app=WebAppInfo(url=WEBAPP_URL))]
+                        [InlineKeyboardButton(text="📲 Открыть Портал ВФЛ", url=f"https://t.me/{BOT_USERNAME}?startapp=app")]
                     ])
                 )
             )
@@ -841,7 +887,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
                     parse_mode="Markdown"
                 ),
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🪪 Смотреть Свой Паспорт", web_app=WebAppInfo(url=WEBAPP_URL))] if WEBAPP_URL else []
+                    [InlineKeyboardButton(text="🪪 Смотреть Свой Паспорт", url=f"https://t.me/{BOT_USERNAME}?startapp=passport")]
                 ])
             )
         )
@@ -872,7 +918,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
     # -------------------------------------------------------------
     # ГЕНЕРАТОР ТОСТОВ
     # -------------------------------------------------------------
-    @dp.message(Command("toast"))
+    @dp.message(Command("toast", "тост", prefix="/!"))
     @dp.callback_query(F.data == "menu_toast")
     async def show_toast(event: types.Message | types.CallbackQuery):
         if isinstance(event, types.CallbackQuery):
@@ -891,12 +937,12 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
             [InlineKeyboardButton(text="🎲 Еще тост!", callback_data="menu_toast")],
             [InlineKeyboardButton(text="« Главное меню", callback_data="menu_main")]
         ])
-        await msg.answer(text, reply_markup=kb, parse_mode="Markdown")
+        await safe_answer(msg, text, reply_markup=kb)
 
     # -------------------------------------------------------------
     # АНТИПОХМЕЛЬНЫЙ SOS
     # -------------------------------------------------------------
-    @dp.message(Command("sos"))
+    @dp.message(Command("sos", "сос", "похмелье", prefix="/!"))
     @dp.callback_query(F.data == "menu_sos")
     async def show_sos(event: types.Message | types.CallbackQuery):
         if isinstance(event, types.CallbackQuery):
@@ -920,7 +966,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="« Главное меню", callback_data="menu_main")]
         ])
-        await msg.answer("\n".join(text_parts), reply_markup=kb, parse_mode="Markdown")
+        await safe_answer(msg, "\n".join(text_parts), reply_markup=kb)
 
     # -------------------------------------------------------------
     # ТАБЛИЦА РАЗРЯДОВ
@@ -940,7 +986,7 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
     # -------------------------------------------------------------
     # КАЛЬКУЛЯТОР НОРМАТИВА
     # -------------------------------------------------------------
-    @dp.message(Command("calc"))
+    @dp.message(Command("calc", "кальк", "калькулятор", "норматив", prefix="/!"))
     @dp.callback_query(F.data == "menu_calc")
     async def cb_calc_start(event: types.Message | types.CallbackQuery, state: FSMContext):
         await state.set_state(LitrballStates.calc_weight)
@@ -1358,6 +1404,39 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
             [InlineKeyboardButton(text="« Назад", callback_data="menu_main")]
         ])
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+
+    # -------------------------------------------------------------
+    # ОБРАБОТКА ОБЫЧНЫХ СООБЩЕНИЙ В ГРУППЕ
+    # -------------------------------------------------------------
+    @dp.message(F.chat.type.in_(["group", "supergroup"]))
+    async def group_text_handler(message: types.Message):
+        if not message.text:
+            return
+        txt = message.text.lower().strip()
+
+        # Если упомянули бота или спросили помощь/команды
+        if f"@{BOT_USERNAME.lower()}" in txt or txt in ["литрбол", "вфл", "помощь", "хелп", "команды", "help"]:
+            help_text = (
+                f"🍺 **ВСЕРОССИЙСКАЯ ФЕДЕРАЦИЯ ЛИТРБОЛА (ВФЛ)**\n\n"
+                f"📋 **Команды для застолья:**\n"
+                f"• `/party` или `/room` — Запустить Застольную Зарубу с таймером и селфи\n"
+                f"• `/drink [напиток] [мл]` — Зафиксировать подход (напр: `/drink пиво 500` или `/drink водка 50`)\n"
+                f"• `/top` — Таблица рекордов участников этого чата\n"
+                f"• `/stats` — Общая сводка чата по выпитому спирту\n"
+                f"• `/app` — Запустить официальный Mini App\n"
+                f"• `/duel` — Вызов на дуэль (ответом на сообщение собутыльника)\n"
+                f"• `/toast` — Случайный судейский тост\n"
+                f"• `/passport` — Спортивный паспорт атлета"
+            )
+            app_btn = get_webapp_button("📲 Открыть Mini App чата", f"{WEBAPP_URL}?chat_id={message.chat.id}", f"chat_{message.chat.id}", is_group=True)
+            kb = InlineKeyboardMarkup(inline_keyboard=[[app_btn]])
+            await safe_answer(message, help_text, reply_markup=kb)
+            return
+
+        # Быстрый чекин если пишут "пиво 500", "водка 100" и т.п. без слэша
+        parts = txt.split()
+        if len(parts) >= 2 and any(p.isdigit() for p in parts) and any(w in txt for w in ["пив", "водк", "вин", "виск", "коньяк", "сидр", "текил", "ром", "ерш", "ёрш", "настойк", "самогон"]):
+            await cmd_drink(message)
 
 async def main():
     if not TOKEN:
