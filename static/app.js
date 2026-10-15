@@ -432,23 +432,43 @@ function clientCalculate(p) {
 }
 
 function renderCalculationResult(res) {
-  const box = document.getElementById("calcResultBox");
+  const box = document.getElementById("calcResultContainer") || document.getElementById("calcResultBox");
   if (!box) return;
 
   box.style.display = "block";
   box.scrollIntoView({ behavior: 'smooth' });
 
-  document.getElementById("resBadge").textContent = res.rank.badge || "🏅";
-  document.getElementById("resTitle").textContent = res.rank.title;
-  document.getElementById("resOrder").textContent = `ПРИКАЗ АТТЕСТАЦИОННОЙ КОМИССИИ ${res.order_num}`;
-  document.getElementById("resScore").textContent = res.score;
-  document.getElementById("resEthanol").textContent = `${res.pure_ethanol_g} г`;
-  document.getElementById("resBac").textContent = `~${res.est_bac_promille} ‰`;
-  document.getElementById("resSober").textContent = `${res.sober_hours} ч.`;
-  document.getElementById("resVerdict").innerHTML = `
-    <strong>Вердикт судейской коллегии:</strong> ${res.rank.description}<br><br>
-    <strong>Утренний протокол:</strong> ${res.rank.morning_verdict}
-  `;
+  const badgeEl = document.getElementById("resBadge");
+  const rankEl = document.getElementById("resRankTitle") || document.getElementById("resTitle");
+  const discEl = document.getElementById("resDiscipline");
+  const descEl = document.getElementById("resDescription") || document.getElementById("resVerdict");
+  const scoreEl = document.getElementById("resScore");
+  const ethEl = document.getElementById("resEthanol");
+  const bacEl = document.getElementById("resBac");
+  const soberEl = document.getElementById("resSober");
+  const morningEl = document.getElementById("resMorning");
+
+  if (badgeEl) badgeEl.textContent = res.rank.badge || "🏅";
+  if (rankEl) rankEl.textContent = res.rank.title || "Атлет";
+  if (discEl) discEl.textContent = res.disciplines || "Застольное многоборье";
+  if (descEl) descEl.textContent = res.rank.description || "";
+  if (scoreEl) scoreEl.textContent = res.score;
+  if (ethEl) ethEl.textContent = `${res.pure_ethanol_g} г`;
+  if (bacEl) bacEl.textContent = `~${res.est_bac_promille} ‰`;
+  if (soberEl) soberEl.textContent = `${res.sober_hours} ч.`;
+  if (morningEl) morningEl.textContent = res.rank.morning_verdict || "Готов к новым свершениям";
+
+  // Штрафы
+  const penContainer = document.getElementById("resPenaltiesContainer");
+  const penList = document.getElementById("resPenaltiesList");
+  if (penContainer && penList) {
+    if (res.penalty_notes && res.penalty_notes.length > 0) {
+      penList.innerHTML = res.penalty_notes.map(n => `<li>${escapeHtml(n)}</li>`).join('');
+      penContainer.style.display = "block";
+    } else {
+      penContainer.style.display = "none";
+    }
+  }
 
   // Кнопка перехода к корочке
   const toCertBtn = document.getElementById("goToCertBtn");
@@ -461,6 +481,13 @@ function renderCalculationResult(res) {
         }
       }
       switchTab("tab-cert");
+    };
+  }
+
+  const toDetectorBtn = document.getElementById("goToDetectorBtn");
+  if (toDetectorBtn) {
+    toDetectorBtn.onclick = () => {
+      startDetectorFromCalc();
     };
   }
 }
