@@ -26,7 +26,11 @@ from aiogram.types import (
     BufferedInputFile,
     ReplyKeyboardMarkup,
     KeyboardButton,
-    ReplyKeyboardRemove
+    ReplyKeyboardRemove,
+    InlineQuery,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
+    WebAppInfo
 )
 
 # Импорт логики, базы данных и генератора сертификатов
@@ -609,6 +613,263 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         await msg.answer("\n".join(duel_text), reply_markup=kb, parse_mode="Markdown")
 
     # -------------------------------------------------------------
+    # ЗАСТОЛЬНАЯ ЗАРУБА: КОМНАТЫ (/room, /party)
+    # -------------------------------------------------------------
+    @dp.message(Command("room", "party"))
+    async def cmd_party_room(message: types.Message):
+        user = message.from_user
+        chat = message.chat
+        chat_id = chat.id if chat.type in ['group', 'supergroup'] else None
+        chat_title = chat.title if chat.type in ['group', 'supergroup'] else f"Заруба {user.first_name}"
+
+        # Проверяем, есть ли уже активная комната для чата
+        room_state = None
+        if chat_id:
+            room_state = database.get_active_room_for_chat(chat_id)
+
+        # Если нет или в ЛС — создаем новую
+        if not room_state:
+            title = f"Заруба: {chat_title}"
+            room_state = database.create_party_room(
+                creator_id=user.id,
+                creator_name=user.first_name or "Хозяин поляны",
+                title=title,
+                chat_id=chat_id,
+                duration_min=30
+            )
+
+        room_id = room_state['room_id']
+        participants = room_state.get('participants', [])
+        p_list = "\n".join([f"• {p['user_name']} ({'✅ Готов' if p['is_ready'] else '⏳ Ждет'})" for p in participants]) or "• Пока никого"
+
+        text = (
+            f"🍻 **КОМНАТА ЗАСТОЛЬНОЙ ЗАРУБЫ #{room_id}**\n"
+            f"🏟️ Название: **{room_state.get('title', 'Застольная Заруба')}**\n"
+            f"⏱️ Статус: **{room_state.get('status', 'waiting').upper()}** | Длительность: **{room_state.get('duration_min', 30)} мин**\n\n"
+            f"👥 **Участники ({len(participants)}):**\n{p_list}\n\n"
+            f"📜 **Регламент битвы:**\n"
+            f"1️⃣ Нажмите **«Войти в Зарубу»** и подтвердите готовность\n"
+            f"2️⃣ Ведущий дает старт ➔ чеканьте напитки в реальном времени\n"
+            f"3️⃣ Делайте фото лица по свистку для судейской галереи\n"
+            f"4️⃣ На финале — перекличка «Я В СТРОЮ!». Кто не подтвердил — статус **💀 ОТРУБИЛСЯ**!"
+        )
+
+        app_url = f"{WEBAPP_URL}?room_id={room_id}&chat_id={chat.id}#tab-duel" if WEBAPP_URL else ""
+        buttons = []
+        if app_url:
+            buttons.append([InlineKeyboardButton(text="⚔️ Войти в Зарубу (Mini App)", web_app=WebAppInfo(url=app_url))])
+
+        buttons.append([
+            InlineKeyboardButton(text="🔄 Обновить статус", callback_data=f"room_refresh:{room_id}"),
+            InlineKeyboardButton(text="🚀 Старт (Хост)", callback_data=f"room_start:{room_id}")
+        ])
+        buttons.append([
+            InlineKeyboardButton(text="✋ Я В СТРОЮ! (Перекличка)", callback_data=f"room_alive:{room_id}")
+        ])
+
+        await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="Markdown")
+
+    @dp.callback_query(F.data.startswith("room_refresh:"))
+    async def cb_room_refresh(callback: types.CallbackQuery):
+        room_id = callback.data.split(":")[1]
+        state = database.get_party_room_state(room_id)
+        if not state:
+            await callback.answer("Комната не найдена или закрыта", show_alert=True)
+            return
+        participants = state.get('participants', [])
+        p_list = "\n".join([f"• {p['user_name']} ({'✅ Готов' if p['is_ready'] else '⏳ Ждет'}) [{p['score']} очков, {p['drinks_count']} подходов]" for p in participants]) or "• Пока никого"
+
+        status_map = {"waiting": "ОЖИДАНИЕ", "active": "ИДЕТ ЗАРУБА 🔥", "finishing": "ПЕРЕКЛИЧКА 🚨", "finished": "ЗАВЕРШЕНА 🏁"}
+        status_str = status_map.get(state['status'], state['status'])
+
+        text = (
+            f"🍻 **КОМНАТА ЗАСТОЛЬНОЙ ЗАРУБЫ #{room_id}**\n"
+            f"🏟️ Название: **{state.get('title', 'Застольная Заруба')}**\n"
+            f"⏱️ Статус: **{status_str}**\n\n"
+            f"👥 **Участники ({len(participants)}):**\n{p_list}\n\n"
+            f"🥃 Всего подходов: **{len(state.get('drinks', []))}** | 📸 Фотографий: **{len(state.get('photos', []))}**"
+        )
+        if state['status'] == 'finished':
+            text += f"\n\n👑 **Победитель:** {state.get('winner_name')} ({state.get('winner_score')} очков)"
+
+        app_url = f"{WEBAPP_URL}?room_id={room_id}#tab-duel" if WEBAPP_URL else ""
+        buttons = []
+        if app_url:
+            buttons.append([InlineKeyboardButton(text="⚔️ Открыть в Mini App", web_app=WebAppInfo(url=app_url))])
+        buttons.append([
+            InlineKeyboardButton(text="🔄 Обновить", callback_data=f"room_refresh:{room_id}"),
+            InlineKeyboardButton(text="🚀 Старт", callback_data=f"room_start:{room_id}")
+        ])
+        buttons.append([
+            InlineKeyboardButton(text="✋ Я В СТРОЮ! (Перекличка)", callback_data=f"room_alive:{room_id}")
+        ])
+        try:
+            await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="Markdown")
+            await callback.answer("Данные обновлены")
+        except Exception:
+            await callback.answer("Без изменений")
+
+    @dp.callback_query(F.data.startswith("room_start:"))
+    async def cb_room_start(callback: types.CallbackQuery):
+        room_id = callback.data.split(":")[1]
+        state = database.start_party_room(room_id)
+        if "error" in state:
+            await callback.answer(state["error"], show_alert=True)
+            return
+        await callback.answer("🔥 Заруба началась! Таймер пошел!", show_alert=True)
+        app_url = f"{WEBAPP_URL}?room_id={room_id}#tab-duel" if WEBAPP_URL else ""
+        text = (
+            f"🔥 **ЗАРУБА #{room_id} ОФИЦИАЛЬНО НАЧАТА!** 🔥\n\n"
+            f"⏱️ Длительность: {state.get('duration_min', 30)} мин.\n"
+            f"🍻 Чеканьте напитки, делайте селфи лица и держите удар!\n"
+            f"💀 Кто не выживет к финальной перекличке — тот «Отрубился»!"
+        )
+        buttons = []
+        if app_url:
+            buttons.append([InlineKeyboardButton(text="⚔️ Открыть Зарубу (Mini App)", web_app=WebAppInfo(url=app_url))])
+        buttons.append([
+            InlineKeyboardButton(text="🔄 Проверить лидерборд", callback_data=f"room_refresh:{room_id}"),
+            InlineKeyboardButton(text="✋ Я В СТРОЮ!", callback_data=f"room_alive:{room_id}")
+        ])
+        try:
+            await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="Markdown")
+        except Exception:
+            pass
+
+    @dp.callback_query(F.data.startswith("room_alive:"))
+    async def cb_room_alive(callback: types.CallbackQuery):
+        room_id = callback.data.split(":")[1]
+        user = callback.from_user
+        database.confirm_party_alive(room_id, user.id)
+        await callback.answer(f"✅ Атлет {user.first_name}, судейская коллегия зафиксировала: ВЫ В СТРОЮ!", show_alert=True)
+
+    # -------------------------------------------------------------
+    # БЫСТРЫЙ ВЫЗОВ MINI APP (/app)
+    # -------------------------------------------------------------
+    @dp.message(Command("app"))
+    async def cmd_app(message: types.Message):
+        chat = message.chat
+        chat_id = chat.id if chat.type in ['group', 'supergroup'] else None
+        app_url = f"{WEBAPP_URL}?chat_id={chat_id}" if chat_id else WEBAPP_URL
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📲 Открыть Федерацию Литрбола", web_app=WebAppInfo(url=app_url))]
+        ])
+        await message.answer(
+            f"🏆 **Всероссийская Федерация Литрбола (ВФЛ)**\n\n"
+            f"Официальный спорт-портал: калькулятор промилле, 3D-паспорт, Зал Славы и Застольные Зарубы.\n"
+            f"👇 Нажмите кнопку для запуска:",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+
+    # -------------------------------------------------------------
+    # ИНЛАЙН-РЕЖИМ (ВЫЗОВ БОТА В ЛЮБОМ ЧАТЕ ДРУЗЕЙ @gamumuFILMS_bot)
+    # -------------------------------------------------------------
+    @dp.inline_query()
+    async def inline_query_handler(query: InlineQuery):
+        user = query.from_user
+        name = user.first_name or "Атлет"
+        athlete = database.get_athlete(tg_user_id=user.id)
+        rank_title = athlete['rank_title'] if athlete else "Любитель"
+        score = athlete['score'] if athlete else 0
+
+        results = []
+
+        # 1. Застольная Заруба
+        room_url = f"{WEBAPP_URL}#tab-duel" if WEBAPP_URL else ""
+        results.append(
+            InlineQueryResultArticle(
+                id="party_room",
+                title="⚔️ Застольная Заруба: Создать / Войти",
+                description="Собрать баттл с друзьями: таймер, селфи лица и перекличка на выживание",
+                thumbnail_url="https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?w=150",
+                input_message_content=InputTextMessageContent(
+                    message_text=(
+                        f"🍻 **ВСЕРОССИЙСКАЯ ФЕДЕРАЦИЯ ЛИТРБОЛА**\n\n"
+                        f"🔥 Атлет **{name}** собирает друзей на **Застольную Зарубу**!\n\n"
+                        f"📋 Правила просты:\n"
+                        f"• Входим в комнату и чеканим бокалы в реальном времени\n"
+                        f"• Делаем судейские селфи лица по ходу битвы\n"
+                        f"• В финале перекличка «Я В СТРОЮ!». Кто не успел подтвердить — статус **💀 ОТРУБИЛСЯ**!\n\n"
+                        f"👇 Залетай в зарубу:"
+                    ),
+                    parse_mode="Markdown"
+                ),
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⚔️ Войти в Зарубу (Mini App)", web_app=WebAppInfo(url=room_url))] if room_url else []
+                ])
+            )
+        )
+
+        # 2. Спорт-Портал Mini App
+        if WEBAPP_URL:
+            results.append(
+                InlineQueryResultArticle(
+                    id="mini_app",
+                    title="🏆 Спорт-Портал ВФЛ (Mini App)",
+                    description="Официальное веб-приложение: нормативы, разряды, антипохмелье",
+                    thumbnail_url="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
+                    input_message_content=InputTextMessageContent(
+                        message_text=(
+                            f"🏆 **Всероссийская Федерация Литрбола (ВФЛ)**\n\n"
+                            f"Официальный портал спортивного застольного многоборья.\n"
+                            f"Проверь свой разряд, сдай норматив или вызови друзей на дуэль!"
+                        ),
+                        parse_mode="Markdown"
+                    ),
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📲 Открыть Портал ВФЛ", web_app=WebAppInfo(url=WEBAPP_URL))]
+                    ])
+                )
+            )
+
+        # 3. Спортивный паспорт
+        results.append(
+            InlineQueryResultArticle(
+                id="my_passport",
+                title=f"🪪 Мой Разряд: {rank_title}",
+                description=f"Балл: {score} очков. Показать друзьям свой статус в Федерации",
+                thumbnail_url="https://images.unsplash.com/photo-1544717305-2782549b5136?w=150",
+                input_message_content=InputTextMessageContent(
+                    message_text=(
+                        f"🪪 **СПОРТИВНЫЙ ПАСПОРТ ВФЛ**\n\n"
+                        f"👤 Атлет: **{name}**\n"
+                        f"🏅 Официальный разряд: **{rank_title}**\n"
+                        f"🏆 Спортивный балл: **{score}** очков\n"
+                        f"🏛️ Всероссийская Федерация Литрбола (ВФЛ)"
+                    ),
+                    parse_mode="Markdown"
+                ),
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🪪 Смотреть Свой Паспорт", web_app=WebAppInfo(url=WEBAPP_URL))] if WEBAPP_URL else []
+                ])
+            )
+        )
+
+        # 4. Случайный тост
+        toast = random.choice(TOASTS_COLLECTION)
+        results.append(
+            InlineQueryResultArticle(
+                id="random_toast",
+                title="🥂 Сказать тост Федерации",
+                description=f"{toast['title']}: «{toast['text'][:50]}...»",
+                thumbnail_url="https://images.unsplash.com/photo-1569529465841-dfecdab7503b?w=150",
+                input_message_content=InputTextMessageContent(
+                    message_text=(
+                        f"🥂 **ТОСТ ОТ СУДЕЙСКОЙ КОЛЛЕГИИ ВФЛ**\n\n"
+                        f"*{toast['title']}*\n\n"
+                        f"«{toast['text']}»\n\n"
+                        f"📣 Мораль: {toast['verdict']}\n"
+                        f"Поднимем же бокалы! 🍺"
+                    ),
+                    parse_mode="Markdown"
+                )
+            )
+        )
+
+        await query.answer(results, cache_time=5, is_personal=True)
+
+    # -------------------------------------------------------------
     # ГЕНЕРАТОР ТОСТОВ
     # -------------------------------------------------------------
     @dp.message(Command("toast"))
@@ -1111,6 +1372,9 @@ async def main():
     try:
         commands = [
             types.BotCommand(command="start", description="🏆 Главное меню Федерации"),
+            types.BotCommand(command="party", description="🍻 Комната Застольной Зарубы"),
+            types.BotCommand(command="room", description="⚔️ Войти / Создать комнату"),
+            types.BotCommand(command="app", description="📲 Открыть Mini App"),
             types.BotCommand(command="drink", description="🍺 Зафиксировать напиток"),
             types.BotCommand(command="top", description="🥇 Рейтинг чата / Зал Славы"),
             types.BotCommand(command="stats", description="📊 Статистика застолья"),

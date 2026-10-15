@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .env
 litrball.db
+static/uploads/rooms/*
+!static/uploads/rooms/.gitkeep

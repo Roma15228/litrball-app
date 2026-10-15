@@ -466,42 +466,263 @@
       </div>
     </section>
 
-    <!-- ВКЛАДКА 5: ЗАСТОЛЬНАЯ ДУЭЛЬ (PvP) -->
+    <!-- ВКЛАДКА: ЗАСТОЛЬНАЯ ЗАРУБА (КОМНАТА БАТТЛА С ДРУЗЬЯМИ) -->
     <section id="tab-duel" class="tab-pane">
       <div class="card">
         <button type="button" class="subtab-back-btn" onclick="switchTab('tab-more')">‹ Назад в сервисы</button>
         <div class="card-title">
-          <span>Застольная Дуэль (PvP Баттл)</span>
-          <span class="badge" style="background: #ef4444;">АРЕНА</span>
+          <span>⚔️ Застольная Заруба</span>
+          <span class="badge" id="partyRoomBadge" style="background: #ef4444;">АРЕНА</span>
         </div>
         <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 15px;">
-          Сразитесь в 3-раундовом поединке за звание Альфа-Атлета застолья. Оценивается темп, плотность тостов и стойкость автопилота.
+          Многопользовательская комната битвы: таймер, селфи-контроль лица, фиксация напитков и финальная перекличка на выживание.
         </p>
 
-        <!-- Арена дуэли -->
-        <div style="display: flex; align-items: center; justify-content: space-around; padding: 20px; background: var(--bg-card-hover); border-radius: 12px; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
-          <div style="text-align: center; flex: 1; min-width: 120px;">
-            <div style="font-size: 3rem;">🤠</div>
-            <div id="duelFighter1Name" style="font-weight: bold; font-size: 1.1rem; color: var(--gold-glow); margin-top: 4px;">Вы (Атлет)</div>
-            <div id="duelFighter1Score" style="font-size: 0.8rem; color: var(--text-muted);">100 очков</div>
+        <!-- 1. ЭКРАН ВХОДА / СОЗДАНИЯ КОМНАТЫ -->
+        <div id="roomEntryView">
+          <div style="background: var(--bg-card-hover); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+            <h3 style="font-size: 1rem; color: var(--gold-glow); margin-bottom: 8px;">🔑 Войти в комнату по коду</h3>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="inputRoomCode" class="form-input" placeholder="Код, напр. ABC123" style="text-transform: uppercase; font-weight: bold; letter-spacing: 2px;">
+              <button type="button" class="btn-primary" id="btnJoinRoomByCode" style="width: auto; padding: 0 18px; white-space: nowrap;">Войти</button>
+            </div>
           </div>
-          <div style="font-size: 2rem; font-weight: 900; color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);">
-            VS
-          </div>
-          <div style="text-align: center; flex: 1; min-width: 120px;">
-            <div style="font-size: 3rem;">🤖</div>
-            <div id="duelFighter2Name" style="font-weight: bold; font-size: 1.1rem; color: #60a5fa; margin-top: 4px;">Михалыч (Гараж)</div>
-            <div id="duelFighter2Score" style="font-size: 0.8rem; color: var(--text-muted);">120 очков</div>
+
+          <div style="background: var(--bg-card-hover); border-radius: 12px; padding: 16px;">
+            <h3 style="font-size: 1rem; color: var(--gold-glow); margin-bottom: 12px;">👑 Создать новую зарубу</h3>
+            <div class="form-group" style="margin-bottom: 10px;">
+              <label for="inputRoomTitle">Название тусовки</label>
+              <input type="text" id="inputRoomTitle" class="form-input" placeholder="Например: Пятничный замес в гараже" value="Застольная Заруба">
+            </div>
+            <div class="form-group" style="margin-bottom: 14px;">
+              <label>Длительность состязания</label>
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+                <button type="button" class="room-duration-btn active" data-mins="15">15 м</button>
+                <button type="button" class="room-duration-btn" data-mins="30">30 м</button>
+                <button type="button" class="room-duration-btn" data-mins="60">1 ч</button>
+                <button type="button" class="room-duration-btn" data-mins="120">2 ч</button>
+              </div>
+            </div>
+            <button type="button" class="btn-primary" id="btnCreateRoom" style="background: linear-gradient(90deg, #ef4444, #f59e0b);">
+              🚀 Создать комнату зарубы
+            </button>
           </div>
         </div>
 
-        <button type="button" class="btn-primary" id="startDuelBtn" style="background: linear-gradient(90deg, #ef4444, #f59e0b);">
-          ⚔️ Начать соревновательный поединок!
-        </button>
+        <!-- 2. ЭКРАН ЛОББИ ОЖИДАНИЯ (status == 'waiting') -->
+        <div id="roomLobbyView" style="display: none;">
+          <div class="room-header-box">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span style="font-size: 0.8rem; color: var(--text-muted);">Код комнаты:</span>
+                <div id="lobbyRoomCode" class="room-code-tag" onclick="copyRoomCode()">#ABC123 📋</div>
+              </div>
+              <div style="text-align: right;">
+                <span style="font-size: 0.8rem; color: var(--text-muted);">Длительность:</span>
+                <div id="lobbyDuration" style="font-weight: bold; color: var(--gold-primary);">30 мин</div>
+              </div>
+            </div>
+            <h3 id="lobbyRoomTitle" style="font-size: 1.15rem; margin-top: 10px; color: #fff;">Главная заруба</h3>
+            <p id="lobbyRoomHost" style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">Организатор: Хозяин поляны</p>
+          </div>
 
-        <!-- Протокол раундов -->
-        <div id="duelRoundsContainer" style="display: none; margin-top: 20px;">
-          <!-- Карточки раундов -->
+          <!-- Список атлетов в лобби -->
+          <div style="margin-top: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-size: 0.9rem; font-weight: bold; color: #fff;">Участники зарубы:</span>
+              <span id="lobbyParticipantsCount" style="font-size: 0.82rem; color: var(--gold-glow);">1 чел</span>
+            </div>
+            <div id="lobbyParticipantsList" class="room-participants-grid">
+              <!-- Карточки участников -->
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-top: 16px;">
+            <button type="button" class="btn-secondary" id="btnToggleReady" style="flex: 1;">
+              ✋ Я готов!
+            </button>
+            <button type="button" class="btn-secondary" id="btnShareRoom" style="flex: 1;" onclick="shareRoomInvite()">
+              📢 Позвать друзей
+            </button>
+          </div>
+
+          <button type="button" class="btn-primary" id="btnStartRoom" style="margin-top: 12px; background: linear-gradient(90deg, #10b981, #059669);">
+            🚀 Запустить Зарубу! (Старт)
+          </button>
+        </div>
+
+        <!-- 3. ЭКРАН АКТИВНОЙ ЗАРУБЫ (status == 'active') -->
+        <div id="roomActiveView" style="display: none;">
+          <!-- Блок таймера -->
+          <div class="room-timer-card">
+            <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.5px; color: #9ca3af;">До финального свистка:</div>
+            <div id="activeCountdown" class="room-countdown-digit">00:29:54</div>
+            <div class="room-timer-bar">
+              <div id="activeProgressBar" class="room-timer-fill" style="width: 100%;"></div>
+            </div>
+          </div>
+
+          <!-- Быстрый чекин напитка (+1 клик) -->
+          <div style="background: var(--bg-card-hover); border-radius: 12px; padding: 14px; margin-bottom: 16px;">
+            <div style="font-size: 0.9rem; font-weight: bold; color: #fff; margin-bottom: 8px;">🍺 Добавить выпитый напиток:</div>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+              <button type="button" class="quick-drink-btn" onclick="addRoomDrinkQuick('Пиво светлое', 500, 4.8)">
+                <span class="qd-icon">🍺</span>
+                <span class="qd-label">Пиво (0.5 л)</span>
+                <span class="qd-pts">+19 очков</span>
+              </button>
+              <button type="button" class="quick-drink-btn" onclick="addRoomDrinkQuick('Шот водки', 50, 40.0)">
+                <span class="qd-icon">🥃</span>
+                <span class="qd-label">Шот водки (50 мл)</span>
+                <span class="qd-pts">+16 очков</span>
+              </button>
+              <button type="button" class="quick-drink-btn" onclick="addRoomDrinkQuick('Бокал вина', 150, 12.5)">
+                <span class="qd-icon">🍷</span>
+                <span class="qd-label">Вино (150 мл)</span>
+                <span class="qd-pts">+15 очков</span>
+              </button>
+              <button type="button" class="quick-drink-btn" onclick="addRoomDrinkQuick('Коктейль крепкий', 250, 15.0)">
+                <span class="qd-icon">🍹</span>
+                <span class="qd-label">Коктейль (250 мл)</span>
+                <span class="qd-pts">+30 очков</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 📸 СУДЕЙСКИЙ ФОТОКОНТРОЛЬ ЛИЦА -->
+          <div class="face-check-card">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+              <div style="font-size: 1.8rem;">📸</div>
+              <div>
+                <div style="font-weight: bold; color: #fbbf24;">Судейский Фотоконтроль Лица</div>
+                <div style="font-size: 0.78rem; color: #9ca3af;">Периодическая проверка автопилота и фиксация эмоций</div>
+              </div>
+            </div>
+            <p style="font-size: 0.82rem; color: #e5e7eb; margin-bottom: 12px;">
+              Сделайте селфи! Судейская коллегия оценит фокусировку взгляда и добавит снимок в финальную галерею позора и славы (+10 бонусных баллов).
+            </p>
+            <label class="btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; background: linear-gradient(90deg, #ec4899, #8b5cf6);">
+              <span>📷 Сделать селфи лица</span>
+              <input type="file" id="roomPhotoInput" accept="image/*" capture="user" style="display: none;">
+            </label>
+            <div id="roomPhotoPreviewBox" style="display: none; margin-top: 10px; text-align: center;">
+              <img id="roomPhotoPreviewImg" src="" style="width: 120px; height: 120px; object-fit: cover; border-radius: 50%; border: 3px solid var(--gold-primary); box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+              <div id="roomPhotoCaption" style="font-size: 0.8rem; color: var(--gold-glow); margin-top: 6px; font-style: italic;"></div>
+            </div>
+          </div>
+
+          <!-- Таблица лидеров комнаты в реальном времени -->
+          <div style="margin-top: 18px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-size: 0.9rem; font-weight: bold; color: #fff;">📊 Лидерборд зарубы:</span>
+              <button type="button" class="btn-text-gold" onclick="refreshPartyRoomState()">🔄 Обновить</button>
+            </div>
+            <div id="activeLeaderboardList" class="room-athletes-list">
+              <!-- Список атлетов -->
+            </div>
+          </div>
+
+          <!-- Живая лента подходов -->
+          <div style="margin-top: 16px;">
+            <span style="font-size: 0.85rem; font-weight: bold; color: var(--text-muted);">Лента подходов к снаряду:</span>
+            <div id="activeDrinksFeed" class="room-drinks-feed" style="margin-top: 6px;">
+              <!-- Последние напитки -->
+            </div>
+          </div>
+
+          <!-- Кнопка завершения для хоста -->
+          <button type="button" class="btn-secondary" id="btnFinishBattleEarly" style="margin-top: 18px; color: #ef4444; border-color: rgba(239, 68, 68, 0.4);">
+            🛑 Завершить зарубу досрочно и объявить перекличку
+          </button>
+        </div>
+
+        <!-- 4. ЭКРАН ФИНАЛЬНОЙ ПЕРЕКЛИЧКИ («Я В СТРОЮ!» - status == 'finishing') -->
+        <div id="roomFinishingView" style="display: none;">
+          <div class="rollcall-card">
+            <div class="rollcall-pulse-icon">🚨</div>
+            <h2 style="font-size: 1.4rem; color: #ef4444; margin-top: 8px; text-transform: uppercase; font-weight: 900;">
+              ФИНАЛЬНАЯ ПЕРЕКЛИЧКА!
+            </h2>
+            <p style="font-size: 0.9rem; color: #f3f4f6; margin-top: 8px; line-height: 1.4;">
+              Время тусовки истекло! Докажи судейской коллегии, что ты не уснул лицом в салате и в состоянии нажать кнопку!
+            </p>
+            <p style="font-size: 0.8rem; color: #fca5a5; margin-top: 4px;">
+              ⚠️ Кто не нажмет кнопку, автоматически получает статус <strong>💀 «ОТРУБИЛСЯ»</strong> и лишается звания царя застолья!
+            </p>
+
+            <button type="button" id="btnConfirmAlive" class="btn-alive-pulse">
+              🍺 Я В СТРОЮ! ПОДТВЕРЖДАЮ! 🍺
+            </button>
+            <div id="aliveConfirmedNotice" style="display: none; margin-top: 12px; font-weight: bold; color: #10b981; font-size: 1rem;">
+              ✅ ВЫ ПОДТВЕРДИЛИ СВОЙ СТАТУС! Выживание зафиксировано.
+            </div>
+
+            <div style="margin-top: 20px; text-align: left;">
+              <span style="font-size: 0.85rem; font-weight: bold; color: #e5e7eb;">Кто уже подтвердил выживание:</span>
+              <div id="rollcallConfirmedList" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px;">
+                <!-- Бейджи подтвердивших -->
+              </div>
+            </div>
+
+            <button type="button" class="btn-primary" id="btnFinalizeResults" style="margin-top: 20px; background: #ef4444;">
+              🏁 Закрыть перекличку и подвести итоги
+            </button>
+          </div>
+        </div>
+
+        <!-- 5. ЭКРАН РЕЗУЛЬТАТОВ, ТОПА И ГАЛЕРЕИ (status == 'finished') -->
+        <div id="roomFinishedView" style="display: none;">
+          <div class="room-winner-podium">
+            <div style="font-size: 3.5rem;">👑</div>
+            <div style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; color: var(--gold-primary); font-weight: bold;">
+              Царь Застолья
+            </div>
+            <div id="finishedWinnerName" style="font-size: 1.6rem; font-weight: 900; color: #fff; margin-top: 4px;">
+              Имя Победителя
+            </div>
+            <div id="finishedWinnerScore" style="font-size: 0.95rem; color: var(--gold-glow); margin-top: 2px;">
+              0 очков
+            </div>
+          </div>
+
+          <!-- Список отрубившихся (💀 ОТРУБИЛСЯ) -->
+          <div id="knockedOutSection" style="margin-top: 16px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 14px;">
+            <div style="font-weight: bold; color: #f87171; display: flex; align-items: center; gap: 6px; font-size: 0.95rem;">
+              <span>💀</span>
+              <span>ОТРУБИЛИСЬ И УСНУЛИ В САЛАТЕ:</span>
+            </div>
+            <div id="knockedOutList" style="margin-top: 8px; font-size: 0.88rem; color: #fca5a5;">
+              <!-- Список тех, кто не подтвердил -->
+            </div>
+          </div>
+
+          <!-- Выжившие атлеты (Топ-Лист) -->
+          <div style="margin-top: 18px;">
+            <h4 style="font-size: 0.95rem; color: #fff; margin-bottom: 8px;">🎖️ Итоговый протокол выживших:</h4>
+            <div id="finishedSurvivingList" class="room-athletes-list">
+              <!-- Список -->
+            </div>
+          </div>
+
+          <!-- 📸 ГАЛЕРЕЯ «ХРОНИКИ ЛИЦ ЗАРУБЫ» -->
+          <div style="margin-top: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <h4 style="font-size: 0.95rem; color: var(--gold-glow); margin: 0;">📸 Галерея «Хроники Лиц Зарубы»:</h4>
+              <span id="finishedPhotosCount" style="font-size: 0.8rem; color: var(--text-muted);">0 фото</span>
+            </div>
+            <div id="finishedGalleryGrid" class="room-gallery-grid">
+              <!-- Карточки с фото и судейскими комментариями -->
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-top: 20px;">
+            <button type="button" class="btn-secondary" onclick="shareRoomResults()" style="flex: 1;">
+              📢 Поделиться итогами
+            </button>
+            <button type="button" class="btn-primary" onclick="resetToRoomEntry()" style="flex: 1;">
+              🔄 Новая заруба
+            </button>
+          </div>
         </div>
 
       </div>
@@ -727,9 +948,9 @@
 
           <div class="hub-card" onclick="switchTab('tab-duel')">
             <div class="hub-icon">⚔️</div>
-            <div class="hub-title">Застольная Дуэль (PvP)</div>
-            <div class="hub-desc">Сразитесь с соперником в 3 раунда на стойкость, чистоту бокала и силу тостов.</div>
-            <div class="hub-arrow">Бросить вызов ›</div>
+            <div class="hub-title">Застольная Заруба (Комната)</div>
+            <div class="hub-desc">Мультиплеерный баттл: таймер, селфи-контроль лица, гонка бокалов и перекличка на выживание.</div>
+            <div class="hub-arrow">Войти в зарубу ›</div>
           </div>
 
           <div class="hub-card" onclick="switchTab('tab-sos')">

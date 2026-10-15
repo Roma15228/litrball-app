@@ -136,6 +136,76 @@ def init_db():
         )
     ''')
 
+    # Таблица комнат застольных баттлов (вечеринок)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS party_rooms (
+            room_id TEXT PRIMARY KEY,
+            chat_id INTEGER,
+            title TEXT NOT NULL,
+            creator_id INTEGER NOT NULL,
+            creator_name TEXT NOT NULL,
+            status TEXT DEFAULT 'waiting',
+            duration_min INTEGER DEFAULT 30,
+            started_at TEXT,
+            ends_at TEXT,
+            created_at TEXT,
+            winner_name TEXT,
+            winner_score REAL,
+            summary_json TEXT DEFAULT '{}'
+        )
+    ''')
+
+    # Таблица участников комнат
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS party_participants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_id TEXT NOT NULL,
+            tg_user_id INTEGER NOT NULL,
+            user_name TEXT NOT NULL,
+            username TEXT,
+            avatar_url TEXT,
+            is_ready INTEGER DEFAULT 0,
+            score REAL DEFAULT 0,
+            pure_ethanol_g REAL DEFAULT 0,
+            drinks_count INTEGER DEFAULT 0,
+            photos_count INTEGER DEFAULT 0,
+            confirmed_alive INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'ready',
+            joined_at TEXT,
+            updated_at TEXT,
+            UNIQUE(room_id, tg_user_id)
+        )
+    ''')
+
+    # Таблица выпитых напитков внутри комнат
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS party_drinks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_id TEXT NOT NULL,
+            tg_user_id INTEGER NOT NULL,
+            user_name TEXT NOT NULL,
+            drink_name TEXT NOT NULL,
+            volume_ml REAL NOT NULL,
+            abv REAL NOT NULL,
+            pure_ethanol_g REAL NOT NULL,
+            created_at TEXT
+        )
+    ''')
+
+    # Таблица фотофиксаций лиц в комнатах
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS party_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_id TEXT NOT NULL,
+            tg_user_id INTEGER NOT NULL,
+            user_name TEXT NOT NULL,
+            photo_url TEXT NOT NULL,
+            stage TEXT DEFAULT 'active',
+            funny_caption TEXT,
+            created_at TEXT
+        )
+    ''')
+
     # Очистка фейковых записей (только реальные пользователи с tg_user_id)
     c.execute('DELETE FROM athletes WHERE tg_user_id IS NULL')
 
@@ -528,5 +598,389 @@ def create_or_play_duel(creator_data: dict, opponent_data: dict = None) -> dict:
         "comment": winner_comment
     }
 
+# =============================================================
+# СИСТЕМА КОМНАТ ЗАСТОЛЬНОГО БАТТЛА (ВЕЧЕРИНКИ / ЗАРУБЫ)
+# =============================================================
+
+import random
+import string
+import base64
+from datetime import timedelta
+
+FUNNY_PHOTO_CAPTIONS = [
+    "🔥 Боевой румянец чемпиона! Концентрация на бокале 100%.",
+    "😎 Автопилот включен, полёт проходит в штатном режиме.",
+    "🥂 Взгляд человека, готового поднять тост за квантовую физику.",
+    "⚡ ВАК фиксирует идеальную координацию и блеск в глазах!",
+    "🫡 Стойкость титана: ни одного лишнего движения.",
+    "🎭 Судейская коллегия единогласно ставит 10 баллов за артистизм!",
+    "🎯 Фокус слегка уплыл, но дух бойца несокрушим!",
+    "🚀 Готовность к следующему раунду: максимальная.",
+    "🍺 Лицо истинного мастера спорта застольного многоборья."
+]
+
+def save_party_photo_file(room_id: str, user_id: int, data_url_or_b64: str) -> str:
+    """Декодирует base64 фото и сохраняет файл в static/uploads/rooms/"""
+    try:
+        if "," in data_url_or_b64:
+            _, encoded = data_url_or_b64.split(",", 1)
+        else:
+            encoded = data_url_or_b64
+        
+        img_bytes = base64.b64decode(encoded)
+        filename = f"room_{room_id}_{user_id}_{int(datetime.now().timestamp())}_{random.randint(100,999)}.jpg"
+        save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "uploads", "rooms")
+        os.makedirs(save_dir, exist_ok=True)
+        filepath = os.path.join(save_dir, filename)
+        with open(filepath, "wb") as f:
+            f.write(img_bytes)
+        return f"/uploads/rooms/{filename}"
+    except Exception as e:
+        print(f"Error saving party photo: {e}")
+        return None
+
+def generate_room_code() -> str:
+    letters = "".join(random.choices(string.ascii_uppercase, k=3))
+    digits = "".join(random.choices(string.digits, k=3))
+    return f"{letters}{digits}"
+
+def create_party_room(creator_id: int, creator_name: str, title: str = "Застольная Заруба", 
+                      chat_id: int = None, duration_min: int = 30) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    now_dt = datetime.now()
+    now = now_dt.strftime('%Y-%m-%d %H:%M:%S')
+
+    room_id = generate_room_code()
+    # Гарантируем уникальность
+    c.execute('SELECT room_id FROM party_rooms WHERE room_id = ?', (room_id,))
+    if c.fetchone():
+        room_id = generate_room_code()
+
+    c.execute('''
+        INSERT INTO party_rooms (room_id, chat_id, title, creator_id, creator_name, status, duration_min, created_at)
+        VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?)
+    ''', (room_id, chat_id, title, creator_id, creator_name, duration_min, now))
+
+    # Создатель автоматически становится первым участником (готов)
+    c.execute('''
+        INSERT INTO party_participants (room_id, tg_user_id, user_name, is_ready, score, pure_ethanol_g, drinks_count, status, joined_at, updated_at)
+        VALUES (?, ?, ?, 1, 0, 0, 0, 'ready', ?, ?)
+    ''', (room_id, creator_id, creator_name, now, now))
+
+    conn.commit()
+    conn.close()
+
+    return get_party_room_state(room_id)
+
+def join_party_room(room_id: str, tg_user_id: int, user_name: str, username: str = None, avatar_url: str = None) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    c.execute('SELECT status FROM party_rooms WHERE room_id = ?', (room_id,))
+    room = c.fetchone()
+    if not room:
+        conn.close()
+        return {"error": "Комната не найдена"}
+    if room['status'] == 'finished':
+        conn.close()
+        return {"error": "Эта вечеринка уже завершена"}
+
+    # Проверяем, есть ли уже в комнате
+    c.execute('SELECT id FROM party_participants WHERE room_id = ? AND tg_user_id = ?', (room_id, tg_user_id))
+    existing = c.fetchone()
+    if existing:
+        c.execute('''
+            UPDATE party_participants SET
+                user_name = ?, username = ?, avatar_url = ?, updated_at = ?
+            WHERE room_id = ? AND tg_user_id = ?
+        ''', (user_name, username, avatar_url, now, room_id, tg_user_id))
+    else:
+        init_status = 'active' if room['status'] == 'active' else 'waiting'
+        c.execute('''
+            INSERT INTO party_participants (room_id, tg_user_id, user_name, username, avatar_url, is_ready, score, pure_ethanol_g, drinks_count, status, joined_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, ?)
+        ''', (room_id, tg_user_id, user_name, username, avatar_url, init_status, now, now))
+
+    conn.commit()
+    conn.close()
+
+    return get_party_room_state(room_id)
+
+def toggle_party_ready(room_id: str, tg_user_id: int) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    c.execute('SELECT is_ready FROM party_participants WHERE room_id = ? AND tg_user_id = ?', (room_id, tg_user_id))
+    p = c.fetchone()
+    if not p:
+        conn.close()
+        return {"error": "Участник не найден"}
+
+    new_ready = 0 if p['is_ready'] == 1 else 1
+    new_status = 'ready' if new_ready == 1 else 'waiting'
+    c.execute('''
+        UPDATE party_participants SET
+            is_ready = ?, status = ?, updated_at = ?
+        WHERE room_id = ? AND tg_user_id = ?
+    ''', (new_ready, new_status, now, room_id, tg_user_id))
+
+    conn.commit()
+    conn.close()
+    return get_party_room_state(room_id)
+
+def start_party_room(room_id: str, host_id: int = None) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    now_dt = datetime.now()
+    now = now_dt.strftime('%Y-%m-%d %H:%M:%S')
+
+    c.execute('SELECT * FROM party_rooms WHERE room_id = ?', (room_id,))
+    room = c.fetchone()
+    if not room:
+        conn.close()
+        return {"error": "Комната не найдена"}
+
+    duration_min = room['duration_min'] or 30
+    ends_dt = now_dt + timedelta(minutes=duration_min)
+    ends_at = ends_dt.strftime('%Y-%m-%d %H:%M:%S')
+
+    c.execute('''
+        UPDATE party_rooms SET
+            status = 'active', started_at = ?, ends_at = ?
+        WHERE room_id = ?
+    ''', (now, ends_at, room_id))
+
+    # Всех переводим в активный статус
+    c.execute('''
+        UPDATE party_participants SET
+            status = 'active', updated_at = ?
+        WHERE room_id = ?
+    ''', (now, room_id))
+
+    conn.commit()
+    conn.close()
+    return get_party_room_state(room_id)
+
+def add_party_drink(room_id: str, tg_user_id: int, drink_name: str = "Пиво", volume_ml: float = 500.0, abv: float = 5.0) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    c.execute('SELECT user_name FROM party_participants WHERE room_id = ? AND tg_user_id = ?', (room_id, tg_user_id))
+    p = c.fetchone()
+    user_name = p['user_name'] if p else "Атлет"
+
+    pure_ethanol = round(volume_ml * (abv / 100.0) * 0.789, 1)
+
+    c.execute('''
+        INSERT INTO party_drinks (room_id, tg_user_id, user_name, drink_name, volume_ml, abv, pure_ethanol_g, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (room_id, tg_user_id, user_name, drink_name, volume_ml, abv, pure_ethanol, now))
+
+    # Обновляем участника
+    c.execute('''
+        UPDATE party_participants SET
+            pure_ethanol_g = pure_ethanol_g + ?,
+            drinks_count = drinks_count + 1,
+            score = ROUND((pure_ethanol_g + ?) * 1.5 + (drinks_count + 1) * 5, 1),
+            updated_at = ?
+        WHERE room_id = ? AND tg_user_id = ?
+    ''', (pure_ethanol, pure_ethanol, now, room_id, tg_user_id))
+
+    # Синхронизируем с чатом, если комната привязана к чату
+    c.execute('SELECT chat_id FROM party_rooms WHERE room_id = ?', (room_id,))
+    r_chat = c.fetchone()
+    if r_chat and r_chat['chat_id']:
+        record_chat_drink(r_chat['chat_id'], tg_user_id, user_name, None, drink_name, volume_ml, abv)
+
+    conn.commit()
+    conn.close()
+    return get_party_room_state(room_id)
+
+def add_party_photo(room_id: str, tg_user_id: int, photo_data: str, stage: str = "active") -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    c.execute('SELECT user_name FROM party_participants WHERE room_id = ? AND tg_user_id = ?', (room_id, tg_user_id))
+    p = c.fetchone()
+    user_name = p['user_name'] if p else "Атлет"
+
+    photo_url = save_party_photo_file(room_id, tg_user_id, photo_data)
+    if not photo_url:
+        # Если не получилось сохранить файл, используем data_url напрямую
+        photo_url = photo_data if len(photo_data) < 50000 else ""
+
+    caption = random.choice(FUNNY_PHOTO_CAPTIONS)
+
+    c.execute('''
+        INSERT INTO party_photos (room_id, tg_user_id, user_name, photo_url, stage, funny_caption, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (room_id, tg_user_id, user_name, photo_url, stage, caption, now))
+
+    c.execute('''
+        UPDATE party_participants SET
+            photos_count = photos_count + 1,
+            score = score + 10,
+            updated_at = ?
+        WHERE room_id = ? AND tg_user_id = ?
+    ''', (now, room_id, tg_user_id))
+
+    conn.commit()
+    conn.close()
+    return get_party_room_state(room_id)
+
+def confirm_party_alive(room_id: str, tg_user_id: int) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    c.execute('''
+        UPDATE party_participants SET
+            confirmed_alive = 1,
+            status = 'survived',
+            updated_at = ?
+        WHERE room_id = ? AND tg_user_id = ?
+    ''', (now, room_id, tg_user_id))
+
+    conn.commit()
+    conn.close()
+    return get_party_room_state(room_id)
+
+def finish_party_room(room_id: str) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # Все, кто не подтвердил (confirmed_alive = 0), получают статус 'knocked_out' (ОТРУБИЛСЯ)
+    c.execute('''
+        UPDATE party_participants SET
+            status = 'knocked_out'
+        WHERE room_id = ? AND confirmed_alive = 0
+    ''', (room_id,))
+
+    # Ищем победителя среди выживших (confirmed_alive = 1)
+    c.execute('''
+        SELECT tg_user_id, user_name, score
+        FROM party_participants
+        WHERE room_id = ? AND confirmed_alive = 1
+        ORDER BY score DESC
+        LIMIT 1
+    ''', (room_id,))
+    winner = c.fetchone()
+
+    winner_name = winner['user_name'] if winner else "Никто не выжил 💀"
+    winner_score = winner['score'] if winner else 0.0
+
+    if winner:
+        c.execute('''
+            UPDATE party_participants SET
+                status = 'winner'
+            WHERE room_id = ? AND tg_user_id = ?
+        ''', (room_id, winner['tg_user_id']))
+
+    # Закрываем комнату
+    c.execute('''
+        UPDATE party_rooms SET
+            status = 'finished',
+            winner_name = ?,
+            winner_score = ?
+        WHERE room_id = ?
+    ''', (winner_name, winner_score, room_id))
+
+    conn.commit()
+    conn.close()
+    return get_party_room_state(room_id)
+
+def get_party_room_state(room_id: str) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute('SELECT * FROM party_rooms WHERE room_id = ?', (room_id,))
+    room_row = c.fetchone()
+    if not room_row:
+        conn.close()
+        return None
+
+    room = dict(room_row)
+    now_dt = datetime.now()
+
+    # Проверка таймера для активной комнаты
+    if room['status'] == 'active' and room.get('ends_at'):
+        try:
+            ends_dt = datetime.strptime(room['ends_at'], '%Y-%m-%d %H:%M:%S')
+            seconds_left = int((ends_dt - now_dt).total_seconds())
+            if seconds_left <= 0:
+                # Переводим в стадию переклички (finishing)
+                c.execute("UPDATE party_rooms SET status = 'finishing' WHERE room_id = ?", (room_id,))
+                conn.commit()
+                room['status'] = 'finishing'
+                room['seconds_left'] = 0
+            else:
+                room['seconds_left'] = seconds_left
+        except Exception:
+            room['seconds_left'] = 0
+    else:
+        room['seconds_left'] = 0
+
+    # Список участников
+    c.execute('''
+        SELECT id, room_id, tg_user_id, user_name, username, avatar_url, is_ready, score, pure_ethanol_g, drinks_count, photos_count, confirmed_alive, status
+        FROM party_participants
+        WHERE room_id = ?
+        ORDER BY (confirmed_alive = 1) DESC, score DESC
+    ''', (room_id,))
+    participants = [dict(r) for r in c.fetchall()]
+
+    # Последние напитки
+    c.execute('''
+        SELECT id, tg_user_id, user_name, drink_name, volume_ml, abv, pure_ethanol_g, created_at
+        FROM party_drinks
+        WHERE room_id = ?
+        ORDER BY id DESC
+        LIMIT 20
+    ''', (room_id,))
+    drinks = [dict(r) for r in c.fetchall()]
+
+    # Фотогалерея
+    c.execute('''
+        SELECT id, tg_user_id, user_name, photo_url, stage, funny_caption, created_at
+        FROM party_photos
+        WHERE room_id = ?
+        ORDER BY id ASC
+    ''', (room_id,))
+    photos = [dict(r) for r in c.fetchall()]
+
+    conn.close()
+
+    room['participants'] = participants
+    room['drinks'] = drinks
+    room['photos'] = photos
+    room['participants_count'] = len(participants)
+    room['ready_count'] = sum(1 for p in participants if p['is_ready'] == 1)
+    room['knocked_out_count'] = sum(1 for p in participants if p['status'] == 'knocked_out')
+    room['survived_count'] = sum(1 for p in participants if p['confirmed_alive'] == 1)
+
+    return room
+
+def get_active_room_for_chat(chat_id: int) -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('''
+        SELECT room_id FROM party_rooms
+        WHERE chat_id = ? AND status IN ('waiting', 'active', 'finishing')
+        ORDER BY created_at DESC
+        LIMIT 1
+    ''', (chat_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return get_party_room_state(row['room_id'])
+    return None
+
 # Инициализируем БД при загрузке модуля
 init_db()
+

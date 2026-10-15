@@ -8,9 +8,12 @@ import http.server
 import socketserver
 import json
 import urllib.parse
+import urllib.request
 import os
 import sys
 import hashlib
+import threading
+import time
 from datetime import datetime
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
@@ -480,6 +483,26 @@ class LitrballHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"error": f"Failed to generate certificate: {str(e)}"}, status=500)
         elif path == '/api/health':
             self.send_json({"status": "ok", "app": "Всероссийская Федерация Литрбола", "version": "3.0 (Ультимативный Фарш)"})
+        elif path == '/api/room/state':
+            room_id = query.get('room_id', [None])[0]
+            chat_id = query.get('chat_id', [None])[0]
+            if room_id:
+                state = database.get_party_room_state(room_id.upper().strip())
+                if state:
+                    self.send_json(state)
+                else:
+                    self.send_json({"error": "Комната не найдена"}, status=404)
+            elif chat_id:
+                try:
+                    state = database.get_active_room_for_chat(int(chat_id))
+                    if state:
+                        self.send_json(state)
+                    else:
+                        self.send_json({"error": "Нет активной комнаты для этого чата"}, status=404)
+                except Exception as e:
+                    self.send_json({"error": str(e)}, status=400)
+            else:
+                self.send_json({"error": "Параметр room_id или chat_id обязателен"}, status=400)
         else:
             super().do_GET()
 
@@ -585,6 +608,82 @@ class LitrballHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(res)
             except Exception as e:
                 self.send_json({"error": str(e)}, status=400)
+        elif path == '/api/room/create':
+            try:
+                title = data.get('title') or data.get('name') or 'Застольная Заруба'
+                creator_id = int(data.get('creator_id') or data.get('host_id') or 0)
+                creator_name = data.get('creator_name') or data.get('host_name') or 'Хозяин поляны'
+                duration_min = int(data.get('duration_min') or data.get('duration_mins') or 30)
+                chat_id = int(data['chat_id']) if data.get('chat_id') else None
+                room = database.create_party_room(creator_id=creator_id, creator_name=creator_name, title=title, chat_id=chat_id, duration_min=duration_min)
+                self.send_json(room)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=400)
+        elif path == '/api/room/join':
+            try:
+                room_id = str(data.get('room_id', '')).upper().strip()
+                tg_user_id = int(data.get('tg_user_id', 0))
+                user_name = data.get('user_name', 'Атлет')
+                username = data.get('username')
+                avatar_url = data.get('avatar_url')
+                room = database.join_party_room(room_id, tg_user_id, user_name, username, avatar_url)
+                if room and not room.get('error'):
+                    self.send_json(room)
+                else:
+                    self.send_json(room or {"error": "Ошибка входа в комнату"}, status=400)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=400)
+        elif path == '/api/room/ready':
+            try:
+                room_id = str(data.get('room_id', '')).upper().strip()
+                tg_user_id = int(data.get('tg_user_id', 0))
+                room = database.toggle_party_ready(room_id, tg_user_id)
+                self.send_json(room)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=400)
+        elif path == '/api/room/start':
+            try:
+                room_id = str(data.get('room_id', '')).upper().strip()
+                room = database.start_party_room(room_id)
+                self.send_json(room)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=400)
+        elif path == '/api/room/drink':
+            try:
+                room_id = str(data.get('room_id', '')).upper().strip()
+                tg_user_id = int(data.get('tg_user_id', 0))
+                drink_name = data.get('drink_name', 'Пиво')
+                volume_ml = float(data.get('volume_ml', 500))
+                abv = float(data.get('abv', 5.0))
+                room = database.add_party_drink(room_id, tg_user_id, drink_name, volume_ml, abv)
+                self.send_json(room)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=400)
+        elif path == '/api/room/photo':
+            try:
+                room_id = str(data.get('room_id', '')).upper().strip()
+                tg_user_id = int(data.get('tg_user_id', 0))
+                photo_data = data.get('photo_data', '')
+                stage = data.get('stage', 'active')
+                room = database.add_party_photo(room_id, tg_user_id, photo_data, stage)
+                self.send_json(room)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=400)
+        elif path == '/api/room/confirm_alive':
+            try:
+                room_id = str(data.get('room_id', '')).upper().strip()
+                tg_user_id = int(data.get('tg_user_id', 0))
+                room = database.confirm_party_alive(room_id, tg_user_id)
+                self.send_json(room)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=400)
+        elif path == '/api/room/finish':
+            try:
+                room_id = str(data.get('room_id', '')).upper().strip()
+                room = database.finish_party_room(room_id)
+                self.send_json(room)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=400)
         else:
             self.send_error(404, "Endpoint not found")
 
@@ -605,8 +704,32 @@ class LitrballHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
+def keep_alive_worker():
+    """Фоновый поток для предотвращения засыпания Render Free сервиса (таймаут 15 мин)"""
+    external_url = os.environ.get('RENDER_EXTERNAL_URL', 'https://litrball-federation.onrender.com')
+    health_url = f"{external_url.rstrip('/')}/api/health"
+    print(f"🔄 Запущен Anti-Sleep воркер: периодический опрос {health_url}")
+    # Даем серверу запуститься
+    time.sleep(20)
+    while True:
+        try:
+            req = urllib.request.Request(
+                health_url,
+                headers={"User-Agent": "LitrballAntiSleep/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status == 200:
+                    print(f"💓 Anti-Sleep пинг успешен [{datetime.now().strftime('%H:%M:%S')}]")
+        except Exception:
+            pass
+        # Пингуем каждые 8 минут (480 сек), до 15-минутного лимита засыпания
+        time.sleep(480)
+
 def run_server():
     socketserver.TCPServer.allow_reuse_address = True
+    # Запуск фонового пингера для Render Free
+    threading.Thread(target=keep_alive_worker, daemon=True).start()
+
     with socketserver.TCPServer(("", PORT), LitrballHandler) as httpd:
         print(f"==================================================")
         print(f"🍺 Сервер Всероссийской Федерации Литрбола v3.0 запущен!")

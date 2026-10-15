@@ -1116,3 +1116,252 @@ body {
   }
 }
 
+/* ============================================================= */
+/* КОМНАТА ЗАСТОЛЬНОЙ ЗАРУБЫ (PARTY BATTLE ROOM)                 */
+/* ============================================================= */
+
+.room-header-box {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9));
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.room-code-tag {
+  display: inline-block;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px dashed var(--gold-primary);
+  color: var(--gold-glow);
+  font-family: monospace;
+  font-size: 1.15rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  letter-spacing: 1.5px;
+  transition: all 0.2s;
+}
+
+.room-code-tag:hover {
+  background: rgba(245, 158, 11, 0.25);
+  transform: translateY(-1px);
+}
+
+.room-duration-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 10px 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.room-duration-btn.active {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: var(--gold-primary);
+  color: var(--gold-glow);
+}
+
+.room-participants-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.room-participant-card {
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 12px 10px;
+  text-align: center;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.room-participant-card.ready {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.room-participant-card.knocked-out {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
+  filter: grayscale(0.5);
+}
+
+.room-timer-card {
+  background: radial-gradient(circle at top, #1e1b4b 0%, #0f172a 100%);
+  border: 2px solid #6366f1;
+  box-shadow: 0 0 25px rgba(99, 102, 241, 0.25);
+  border-radius: 16px;
+  padding: 20px 16px;
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.room-countdown-digit {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 2.8rem;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #fff;
+  text-shadow: 0 0 15px rgba(129, 140, 248, 0.8);
+  margin: 6px 0 10px;
+}
+
+.room-timer-bar {
+  background: rgba(255, 255, 255, 0.1);
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.room-timer-fill {
+  background: linear-gradient(90deg, #6366f1, #ec4899);
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease-out;
+}
+
+.quick-drink-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.quick-drink-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--gold-primary);
+  transform: translateY(-2px);
+}
+
+.quick-drink-btn .qd-icon {
+  font-size: 1.6rem;
+  margin-bottom: 2px;
+}
+
+.quick-drink-btn .qd-label {
+  font-size: 0.82rem;
+  font-weight: bold;
+  color: #fff;
+}
+
+.quick-drink-btn .qd-pts {
+  font-size: 0.72rem;
+  color: var(--gold-glow);
+  margin-top: 2px;
+}
+
+.face-check-card {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.12), rgba(139, 92, 246, 0.12));
+  border: 1px dashed rgba(236, 72, 153, 0.4);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.rollcall-card {
+  background: radial-gradient(circle at center, rgba(239, 68, 68, 0.25) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border: 2px solid #ef4444;
+  border-radius: 18px;
+  padding: 24px 18px;
+  text-align: center;
+  box-shadow: 0 0 30px rgba(239, 68, 68, 0.35);
+  animation: pulse-border 2s infinite ease-in-out;
+}
+
+@keyframes pulse-border {
+  0% { box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 35px rgba(239, 68, 68, 0.7); }
+  100% { box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); }
+}
+
+.rollcall-pulse-icon {
+  font-size: 3.2rem;
+  animation: pulse-icon 1s infinite alternate ease-in-out;
+}
+
+@keyframes pulse-icon {
+  0% { transform: scale(0.9); }
+  100% { transform: scale(1.15); }
+}
+
+.btn-alive-pulse {
+  display: block;
+  width: 100%;
+  background: linear-gradient(90deg, #ef4444, #f59e0b);
+  color: #fff;
+  font-size: 1.15rem;
+  font-weight: 900;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  margin-top: 18px;
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.5);
+  animation: btn-shake 2.5s infinite;
+}
+
+@keyframes btn-shake {
+  0%, 100% { transform: translateY(0); }
+  10%, 30% { transform: scale(1.03) translateY(-2px); }
+  20%, 40% { transform: scale(0.98) translateY(1px); }
+}
+
+.room-winner-podium {
+  background: radial-gradient(circle at center, rgba(245, 158, 11, 0.2) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border: 2px solid var(--gold-primary);
+  border-radius: 18px;
+  padding: 26px 16px;
+  text-align: center;
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.3);
+}
+
+.room-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  gap: 12px;
+}
+
+.gallery-photo-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.gallery-photo-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.gallery-photo-card .gp-caption {
+  padding: 8px;
+  font-size: 0.75rem;
+  color: var(--text-main);
+  line-height: 1.3;
+  flex: 1;
+}
+
+.gallery-photo-card .gp-author {
+  font-size: 0.7rem;
+  color: var(--gold-glow);
+  font-weight: bold;
+  padding: 0 8px 6px;
+}
+

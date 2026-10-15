@@ -60,6 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function initTelegramWebApp() {
   const urlParams = new URLSearchParams(window.location.search);
   STATE.chatId = urlParams.get('chat_id') || null;
+  const urlRoomId = urlParams.get('room_id') || null;
 
   if (window.Telegram && window.Telegram.WebApp) {
     const tg = window.Telegram.WebApp;
@@ -75,8 +76,12 @@ function initTelegramWebApp() {
         const param = tg.initDataUnsafe.start_param;
         if (param.startsWith('chat_')) {
           STATE.chatId = param.replace('chat_', '');
+        } else if (param.startsWith('room_')) {
+          STATE.targetRoomId = param.replace('room_', '').toUpperCase().trim();
         } else if (!isNaN(param)) {
           STATE.chatId = param;
+        } else if (param.length === 6) {
+          STATE.targetRoomId = param.toUpperCase().trim();
         }
       }
       if (tg.initDataUnsafe.user) {
@@ -93,6 +98,20 @@ function initTelegramWebApp() {
         }
       }
     }
+  }
+
+  if (urlRoomId) {
+    STATE.targetRoomId = urlRoomId.toUpperCase().trim();
+  }
+
+  // Если был передан room_id или в хэше #tab-duel, переключаем на дуэль
+  if (STATE.targetRoomId || window.location.hash.includes('tab-duel')) {
+    setTimeout(() => {
+      switchTab('tab-duel');
+      if (STATE.targetRoomId) {
+        joinPartyRoom(STATE.targetRoomId);
+      }
+    }, 250);
   }
 }
 
@@ -1427,74 +1446,605 @@ function updateBacDisplay(hoursPassed = 0) {
 }
 
 // =============================================================
-// УЛЬТИМАТИВНЫЙ ФАРШ: ЗАСТОЛЬНАЯ ДУЭЛЬ (PvP)
+// УЛЬТИМАТИВНЫЙ ФАРШ: КОМНАТА ЗАСТОЛЬНОЙ ЗАРУБЫ (PARTY BATTLE ROOM)
 // =============================================================
+let activePartyRoom = null;
+let roomPollInterval = null;
+let roomCountdownTimer = null;
+let selectedRoomDuration = 15;
+
 function initDuels() {
-  const startBtn = document.getElementById("startDuelBtn");
-  if (startBtn) {
-    startBtn.addEventListener("click", async () => {
-      startBtn.disabled = true;
-      startBtn.textContent = "🥊 Раунд 1... Раунд 2... Раунд 3...";
+  // Выбор длительности зарубы
+  document.querySelectorAll(".room-duration-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".room-duration-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedRoomDuration = parseInt(btn.dataset.mins, 10);
+    });
+  });
 
-      const creatorScore = STATE.currentResult ? STATE.currentResult.score : 100;
-      const creatorName = STATE.name || "Атлет";
-      const creatorRank = STATE.currentResult ? STATE.currentResult.rank.title : "Любитель";
+  // Кнопка "Создать комнату"
+  const btnCreate = document.getElementById("btnCreateRoom");
+  if (btnCreate) {
+    btnCreate.addEventListener("click", createPartyRoom);
+  }
 
-      try {
-        const resp = await fetch("/api/duel", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            creator: { name: creatorName, score: creatorScore, rank_title: creatorRank }
-          })
-        });
-        const res = await resp.json();
-        renderDuelResult(res);
-      } catch (e) {
-        console.error("Duel error:", e);
-      } finally {
-        startBtn.disabled = false;
-        startBtn.textContent = "⚔️ Начать соревновательный поединок!";
+  // Кнопка "Войти по коду"
+  const btnJoin = document.getElementById("btnJoinRoomByCode");
+  if (btnJoin) {
+    btnJoin.addEventListener("click", () => {
+      const codeInput = document.getElementById("inputRoomCode");
+      const code = codeInput ? codeInput.value.trim().toUpperCase() : "";
+      if (!code) {
+        alert("Пожалуйста, введите код комнаты!");
+        return;
+      }
+      joinPartyRoom(code);
+    });
+  }
+
+  // Кнопка "Готов"
+  const btnReady = document.getElementById("btnToggleReady");
+  if (btnReady) {
+    btnReady.addEventListener("click", togglePartyReady);
+  }
+
+  // Кнопка "Старт" (Хост)
+  const btnStart = document.getElementById("btnStartRoom");
+  if (btnStart) {
+    btnStart.addEventListener("click", startPartyRoom);
+  }
+
+  // Селфи лица
+  const photoInput = document.getElementById("roomPhotoInput");
+  if (photoInput) {
+    photoInput.addEventListener("change", handleRoomPhotoUpload);
+  }
+
+  // Подтвердить "Я в строю!"
+  const btnAlive = document.getElementById("btnConfirmAlive");
+  if (btnAlive) {
+    btnAlive.addEventListener("click", confirmPartyAlive);
+  }
+
+  // Завершить перекличку и подвести итоги
+  const btnFinalize = document.getElementById("btnFinalizeResults");
+  if (btnFinalize) {
+    btnFinalize.addEventListener("click", finalizePartyRoom);
+  }
+
+  // Досрочное завершение
+  const btnFinishEarly = document.getElementById("btnFinishBattleEarly");
+  if (btnFinishEarly) {
+    btnFinishEarly.addEventListener("click", () => {
+      if (confirm("Вы уверены, что хотите завершить зарубу досрочно и перейти к перекличке?")) {
+        finalizePartyRoom();
       }
     });
   }
+
+  // Проверяем, есть ли уже сохраненная комната или параметр в URL
+  if (STATE.targetRoomId) {
+    joinPartyRoom(STATE.targetRoomId);
+  }
 }
 
-function renderDuelResult(duel) {
-  const container = document.getElementById("duelRoundsContainer");
-  if (!container) return;
+async function createPartyRoom() {
+  const titleInput = document.getElementById("inputRoomTitle");
+  const title = (titleInput && titleInput.value.trim()) || "Застольная Заруба";
+  const userId = STATE.tgUserId || (1000 + Math.floor(Math.random() * 9000));
+  const userName = STATE.name || "Атлет";
 
-  const f1Name = document.getElementById("duelFighter1Name");
-  const f1Score = document.getElementById("duelFighter1Score");
-  const f2Name = document.getElementById("duelFighter2Name");
-  const f2Score = document.getElementById("duelFighter2Score");
+  try {
+    const resp = await fetch("/api/room/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: title,
+        creator_id: userId,
+        creator_name: userName,
+        duration_min: selectedRoomDuration,
+        chat_id: STATE.chatId
+      })
+    });
+    const room = await resp.json();
+    if (room && room.room_id) {
+      activePartyRoom = room;
+      renderPartyRoomState(room);
+      startRoomPolling(room.room_id);
+    }
+  } catch (e) {
+    console.error("Failed to create room:", e);
+    alert("Ошибка создания комнаты. Проверьте соединение.");
+  }
+}
 
-  if (f1Name) f1Name.textContent = duel.creator.name;
-  if (f1Score) f1Score.textContent = `${duel.creator.score} очков (${duel.creator.rank})`;
-  if (f2Name) f2Name.textContent = duel.opponent.name;
-  if (f2Score) f2Score.textContent = `${duel.opponent.score} очков (${duel.opponent.rank})`;
+async function joinPartyRoom(roomId) {
+  const userId = STATE.tgUserId || (1000 + Math.floor(Math.random() * 9000));
+  const userName = STATE.name || "Атлет";
+  const username = STATE.tgUser ? STATE.tgUser.username : null;
 
-  let html = `<div style="text-align: center; margin-bottom: 15px; font-weight: bold; font-size: 1.2rem; color: var(--gold-glow);">${duel.comment}</div>`;
+  try {
+    const resp = await fetch("/api/room/join", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        room_id: roomId,
+        tg_user_id: userId,
+        user_name: userName,
+        username: username
+      })
+    });
+    const room = await resp.json();
+    if (room && !room.error) {
+      activePartyRoom = room;
+      renderPartyRoomState(room);
+      startRoomPolling(room.room_id);
+    } else {
+      alert(room.error || "Комната не найдена");
+    }
+  } catch (e) {
+    console.error("Failed to join room:", e);
+  }
+}
 
-  duel.rounds.forEach((r, idx) => {
-    html += `
-      <div class="duel-round-card">
-        <div style="display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 4px;">
-          <span>${r.title}</span>
-          <span style="color: var(--gold-primary);">Раунд за: ${r.round_winner}</span>
+async function togglePartyReady() {
+  if (!activePartyRoom) return;
+  const userId = STATE.tgUserId || 1000;
+  try {
+    const resp = await fetch("/api/room/ready", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        room_id: activePartyRoom.room_id,
+        tg_user_id: userId
+      })
+    });
+    const room = await resp.json();
+    if (room && !room.error) {
+      activePartyRoom = room;
+      renderPartyRoomState(room);
+    }
+  } catch (e) {
+    console.error("Failed to toggle ready:", e);
+  }
+}
+
+async function startPartyRoom() {
+  if (!activePartyRoom) return;
+  try {
+    const resp = await fetch("/api/room/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        room_id: activePartyRoom.room_id
+      })
+    });
+    const room = await resp.json();
+    if (room && !room.error) {
+      activePartyRoom = room;
+      renderPartyRoomState(room);
+    }
+  } catch (e) {
+    console.error("Failed to start room:", e);
+  }
+}
+
+window.addRoomDrinkQuick = async function(drinkName, vol, abv) {
+  if (!activePartyRoom) return;
+  const userId = STATE.tgUserId || 1000;
+  try {
+    const resp = await fetch("/api/room/drink", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        room_id: activePartyRoom.room_id,
+        tg_user_id: userId,
+        drink_name: drinkName,
+        volume_ml: vol,
+        abv: abv
+      })
+    });
+    const room = await resp.json();
+    if (room && !room.error) {
+      activePartyRoom = room;
+      renderPartyRoomState(room);
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.notificationOccurred("success");
+      }
+    }
+  } catch (e) {
+    console.error("Failed to add room drink:", e);
+  }
+};
+
+async function handleRoomPhotoUpload(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file || !activePartyRoom) return;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const base64Data = e.target.result;
+    const userId = STATE.tgUserId || 1000;
+    try {
+      const resp = await fetch("/api/room/photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          room_id: activePartyRoom.room_id,
+          tg_user_id: userId,
+          photo_data: base64Data,
+          stage: activePartyRoom.status || "active"
+        })
+      });
+      const room = await resp.json();
+      if (room && !room.error) {
+        activePartyRoom = room;
+        renderPartyRoomState(room);
+
+        // Показываем превью
+        const previewBox = document.getElementById("roomPhotoPreviewBox");
+        const previewImg = document.getElementById("roomPhotoPreviewImg");
+        const captionEl = document.getElementById("roomPhotoCaption");
+        if (previewBox && previewImg) {
+          previewImg.src = base64Data;
+          const userPhoto = room.photos && room.photos.slice().reverse().find(p => p.tg_user_id == userId);
+          if (captionEl && userPhoto) {
+            captionEl.textContent = `Судейский вердикт: «${userPhoto.funny_caption}»`;
+          }
+          previewBox.style.display = "block";
+        }
+      }
+    } catch (err) {
+      console.error("Photo upload error:", err);
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+async function confirmPartyAlive() {
+  if (!activePartyRoom) return;
+  const userId = STATE.tgUserId || 1000;
+  try {
+    const resp = await fetch("/api/room/confirm_alive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        room_id: activePartyRoom.room_id,
+        tg_user_id: userId
+      })
+    });
+    const room = await resp.json();
+    if (room && !room.error) {
+      activePartyRoom = room;
+      renderPartyRoomState(room);
+      const notice = document.getElementById("aliveConfirmedNotice");
+      if (notice) notice.style.display = "block";
+      const btn = document.getElementById("btnConfirmAlive");
+      if (btn) btn.style.display = "none";
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.notificationOccurred("success");
+      }
+    }
+  } catch (e) {
+    console.error("Failed to confirm alive:", e);
+  }
+}
+
+async function finalizePartyRoom() {
+  if (!activePartyRoom) return;
+  try {
+    const resp = await fetch("/api/room/finish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        room_id: activePartyRoom.room_id
+      })
+    });
+    const room = await resp.json();
+    if (room && !room.error) {
+      activePartyRoom = room;
+      renderPartyRoomState(room);
+    }
+  } catch (e) {
+    console.error("Failed to finish room:", e);
+  }
+}
+
+window.refreshPartyRoomState = async function() {
+  if (!activePartyRoom) return;
+  try {
+    const resp = await fetch(`/api/room/state?room_id=${activePartyRoom.room_id}`);
+    const room = await resp.json();
+    if (room && !room.error) {
+      activePartyRoom = room;
+      renderPartyRoomState(room);
+    }
+  } catch (e) {
+    console.error("Failed to refresh room state:", e);
+  }
+};
+
+function startRoomPolling(roomId) {
+  if (roomPollInterval) clearInterval(roomPollInterval);
+  roomPollInterval = setInterval(async () => {
+    const duelTab = document.getElementById("tab-duel");
+    if (!duelTab || !duelTab.classList.contains("active")) return;
+    if (!activePartyRoom || activePartyRoom.status === 'finished') {
+      clearInterval(roomPollInterval);
+      return;
+    }
+    try {
+      const resp = await fetch(`/api/room/state?room_id=${roomId}`);
+      const room = await resp.json();
+      if (room && !room.error) {
+        activePartyRoom = room;
+        renderPartyRoomState(room);
+      }
+    } catch (e) {}
+  }, 3500);
+}
+
+function renderPartyRoomState(room) {
+  if (!room) return;
+
+  const views = {
+    entry: document.getElementById("roomEntryView"),
+    lobby: document.getElementById("roomLobbyView"),
+    active: document.getElementById("roomActiveView"),
+    finishing: document.getElementById("roomFinishingView"),
+    finished: document.getElementById("roomFinishedView")
+  };
+
+  const badge = document.getElementById("partyRoomBadge");
+  const userId = STATE.tgUserId || 1000;
+
+  // Скрываем все виды
+  Object.values(views).forEach(v => { if (v) v.style.display = "none"; });
+
+  if (room.status === "waiting") {
+    if (views.lobby) views.lobby.style.display = "block";
+    if (badge) { badge.textContent = "ЛОББИ"; badge.style.background = "#3b82f6"; }
+
+    const codeEl = document.getElementById("lobbyRoomCode");
+    if (codeEl) codeEl.textContent = `#${room.room_id} 📋`;
+    const durEl = document.getElementById("lobbyDuration");
+    if (durEl) durEl.textContent = `${room.duration_min} мин`;
+    const titleEl = document.getElementById("lobbyRoomTitle");
+    if (titleEl) titleEl.textContent = room.title;
+    const hostEl = document.getElementById("lobbyRoomHost");
+    if (hostEl) hostEl.textContent = `Организатор: ${room.creator_name}`;
+
+    const countEl = document.getElementById("lobbyParticipantsCount");
+    if (countEl) countEl.textContent = `${room.participants_count} чел (Готовы: ${room.ready_count})`;
+
+    const listEl = document.getElementById("lobbyParticipantsList");
+    if (listEl && room.participants) {
+      listEl.innerHTML = room.participants.map(p => `
+        <div class="room-participant-card ${p.is_ready ? 'ready' : ''}">
+          <div style="font-size: 1.8rem;">${p.is_ready ? '🥊' : '⏳'}</div>
+          <div style="font-weight: bold; font-size: 0.85rem; color: #fff; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            ${escapeHtml(p.user_name)}
+          </div>
+          <div style="font-size: 0.72rem; color: ${p.is_ready ? '#10b981' : '#9ca3af'}; margin-top: 2px;">
+            ${p.is_ready ? '✅ Готов к бою' : '⏳ Ждет старта'}
+          </div>
         </div>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">${r.desc}</div>
-        <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
-          <span>${duel.creator.name}: <strong>${r.creator_points}</strong></span>
-          <span>${duel.opponent.name}: <strong>${r.opponent_points}</strong></span>
+      `).join('');
+    }
+
+    const currentP = room.participants && room.participants.find(p => p.tg_user_id == userId);
+    const readyBtn = document.getElementById("btnToggleReady");
+    if (readyBtn) {
+      readyBtn.textContent = (currentP && currentP.is_ready) ? "❌ Снять готовность" : "✋ Я готов к бою!";
+    }
+
+  } else if (room.status === "active") {
+    if (views.active) views.active.style.display = "block";
+    if (badge) { badge.textContent = "ИДЕТ БОЙ"; badge.style.background = "#ef4444"; }
+
+    updateCountdownDisplay(room.seconds_left, (room.duration_min || 30) * 60);
+
+    // Лидерборд активной комнаты
+    const lbEl = document.getElementById("activeLeaderboardList");
+    if (lbEl && room.participants) {
+      lbEl.innerHTML = room.participants.map((p, idx) => `
+        <div class="table-row" style="padding: 10px 12px; margin-bottom: 6px; background: var(--bg-card); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="font-weight: 900; font-size: 1.1rem; color: ${idx === 0 ? 'var(--gold-glow)' : 'var(--text-muted)'}; min-width: 24px;">
+              #${idx + 1}
+            </div>
+            <div>
+              <div style="font-weight: bold; font-size: 0.9rem; color: #fff;">${escapeHtml(p.user_name)}</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">🥃 ${p.drinks_count} подходов | 📸 ${p.photos_count || 0} фото</div>
+            </div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-weight: 900; color: var(--gold-primary); font-size: 1rem;">${p.score} очков</div>
+            <div style="font-size: 0.72rem; color: #60a5fa;">${p.pure_ethanol_g}г чистого спирта</div>
+          </div>
         </div>
-      </div>
-    `;
+      `).join('');
+    }
+
+    // Лента последних напитков
+    const feedEl = document.getElementById("activeDrinksFeed");
+    if (feedEl && room.drinks) {
+      if (room.drinks.length === 0) {
+        feedEl.innerHTML = `<div style="font-size: 0.8rem; color: var(--text-muted); padding: 8px 0;">Пока никто не наливал. Будьте первыми!</div>`;
+      } else {
+        feedEl.innerHTML = room.drinks.slice(0, 8).map(d => `
+          <div style="font-size: 0.82rem; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.08); display: flex; justify-content: space-between;">
+            <span>🍻 <strong>${escapeHtml(d.user_name)}</strong> принял: <em>${escapeHtml(d.drink_name)}</em> (${d.volume_ml} мл)</span>
+            <span style="color: var(--text-muted); font-size: 0.75rem;">+${d.pure_ethanol_g}г</span>
+          </div>
+        `).join('');
+      }
+    }
+
+  } else if (room.status === "finishing") {
+    if (views.finishing) views.finishing.style.display = "block";
+    if (badge) { badge.textContent = "ПЕРЕКЛИЧКА"; badge.style.background = "#f59e0b"; }
+
+    const currentP = room.participants && room.participants.find(p => p.tg_user_id == userId);
+    const notice = document.getElementById("aliveConfirmedNotice");
+    const btnAlive = document.getElementById("btnConfirmAlive");
+
+    if (currentP && currentP.confirmed_alive) {
+      if (notice) notice.style.display = "block";
+      if (btnAlive) btnAlive.style.display = "none";
+    } else {
+      if (notice) notice.style.display = "none";
+      if (btnAlive) btnAlive.style.display = "block";
+    }
+
+    const rollcallEl = document.getElementById("rollcallConfirmedList");
+    if (rollcallEl && room.participants) {
+      rollcallEl.innerHTML = room.participants.map(p => `
+        <span class="badge" style="background: ${p.confirmed_alive ? '#10b981' : '#4b5563'}; font-size: 0.78rem; padding: 4px 8px;">
+          ${p.confirmed_alive ? '✅' : '⏳'} ${escapeHtml(p.user_name)}
+        </span>
+      `).join('');
+    }
+
+  } else if (room.status === "finished") {
+    if (views.finished) views.finished.style.display = "block";
+    if (badge) { badge.textContent = "ИТОГИ"; badge.style.background = "#10b981"; }
+
+    const wName = document.getElementById("finishedWinnerName");
+    const wScore = document.getElementById("finishedWinnerScore");
+    if (wName) wName.textContent = room.winner_name || "Никто не выжил 💀";
+    if (wScore) wScore.textContent = `${room.winner_score || 0} очков`;
+
+    // Список отрубившихся (💀 ОТРУБИЛСЯ)
+    const knockedSection = document.getElementById("knockedOutSection");
+    const knockedList = document.getElementById("knockedOutList");
+    const knockedOuts = (room.participants || []).filter(p => p.status === 'knocked_out' || !p.confirmed_alive);
+
+    if (knockedSection && knockedList) {
+      if (knockedOuts.length > 0) {
+        knockedSection.style.display = "block";
+        knockedList.innerHTML = knockedOuts.map(p => `
+          <div style="margin-top: 4px;">
+            💀 <strong>${escapeHtml(p.user_name)}</strong> — уснул в салате / не подтвердил явку (${p.drinks_count} подходов)
+          </div>
+        `).join('');
+      } else {
+        knockedSection.style.display = "none";
+      }
+    }
+
+    // Выжившие
+    const survList = document.getElementById("finishedSurvivingList");
+    const survivors = (room.participants || []).filter(p => p.confirmed_alive == 1);
+    if (survList) {
+      if (survivors.length === 0) {
+        survList.innerHTML = `<div style="font-size: 0.85rem; color: var(--text-muted);">Все участники отрубились на дистанции!</div>`;
+      } else {
+        survList.innerHTML = survivors.map((p, idx) => `
+          <div class="table-row" style="padding: 10px 12px; margin-bottom: 6px; background: var(--bg-card); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="font-weight: 900; font-size: 1.1rem; color: ${idx === 0 ? 'var(--gold-glow)' : 'var(--text-muted)'};">
+                ${idx === 0 ? '👑' : (idx === 1 ? '🥈' : (idx === 2 ? '🥉' : `#${idx + 1}`))}
+              </div>
+              <div>
+                <div style="font-weight: bold; font-size: 0.9rem; color: #fff;">${escapeHtml(p.user_name)}</div>
+                <div style="font-size: 0.72rem; color: #10b981;">Выжил и подтвердил явку в строй</div>
+              </div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-weight: 900; color: var(--gold-primary); font-size: 1rem;">${p.score} очков</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">${p.drinks_count} подходов</div>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Галерея фото
+    const photoCountEl = document.getElementById("finishedPhotosCount");
+    const galleryEl = document.getElementById("finishedGalleryGrid");
+    if (photoCountEl) photoCountEl.textContent = `${(room.photos || []).length} фото`;
+
+    if (galleryEl && room.photos) {
+      if (room.photos.length === 0) {
+        galleryEl.innerHTML = `<div style="grid-column: 1 / -1; font-size: 0.85rem; color: var(--text-muted); text-align: center; padding: 20px 0;">Селфи не делались. Фотопротокол пуст.</div>`;
+      } else {
+        galleryEl.innerHTML = room.photos.map(ph => `
+          <div class="gallery-photo-card">
+            <img src="${ph.photo_url || ''}" alt="Селфи участника" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'">
+            <div class="gp-caption">«${escapeHtml(ph.funny_caption || 'Без слов')}»</div>
+            <div class="gp-author">📸 ${escapeHtml(ph.user_name)}</div>
+          </div>
+        `).join('');
+      }
+    }
+  } else {
+    if (views.entry) views.entry.style.display = "block";
+    if (badge) { badge.textContent = "АРЕНА"; badge.style.background = "#ef4444"; }
+  }
+}
+
+function updateCountdownDisplay(secondsLeft, totalDurationSec) {
+  const cdEl = document.getElementById("activeCountdown");
+  const barEl = document.getElementById("activeProgressBar");
+  if (!cdEl) return;
+
+  const m = Math.floor(Math.max(0, secondsLeft) / 60);
+  const s = Math.max(0, secondsLeft) % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  cdEl.textContent = `00:${mm}:${ss}`;
+
+  if (barEl && totalDurationSec > 0) {
+    const pct = Math.min(100, Math.max(0, (secondsLeft / totalDurationSec) * 100));
+    barEl.style.width = `${pct}%`;
+  }
+}
+
+window.copyRoomCode = function() {
+  if (!activePartyRoom) return;
+  const code = activePartyRoom.room_id;
+  navigator.clipboard.writeText(code).then(() => {
+    alert(`Код комнаты #${code} скопирован в буфер!`);
+  }).catch(() => {
+    prompt("Скопируйте код комнаты:", code);
   });
+};
 
-  container.innerHTML = html;
-  container.style.display = "block";
-}
+window.shareRoomInvite = function() {
+  if (!activePartyRoom) return;
+  const code = activePartyRoom.room_id;
+  const text = `🍻 Залетай в Застольную Зарубу #${code}! Чеканим бокалы и делаем селфи!`;
+  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(window.location.origin + '?room_id=' + code)}&text=${encodeURIComponent(text)}`;
+    window.Telegram.WebApp.openTelegramLink(shareUrl);
+  } else {
+    navigator.clipboard.writeText(window.location.origin + '?room_id=' + code).then(() => {
+      alert("Ссылка на комнату скопирована в буфер обмена!");
+    });
+  }
+};
+
+window.shareRoomResults = function() {
+  if (!activePartyRoom) return;
+  const w = activePartyRoom.winner_name || "Никто";
+  const text = `🏆 ИТОГИ ЗАРУБЫ #${activePartyRoom.room_id}!\n👑 Царь Застолья: ${w} (${activePartyRoom.winner_score} очков).\nОтрубившихся: ${activePartyRoom.knocked_out_count || 0}. Проверь свой разряд в Литрбол Федерации!`;
+  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(window.location.origin)}&text=${encodeURIComponent(text)}`;
+    window.Telegram.WebApp.openTelegramLink(shareUrl);
+  } else {
+    navigator.clipboard.writeText(text).then(() => {
+      alert("Результаты зарубы скопированы в буфер!");
+    });
+  }
+};
+
+window.resetToRoomEntry = function() {
+  activePartyRoom = null;
+  if (roomPollInterval) clearInterval(roomPollInterval);
+  renderPartyRoomState({ status: 'none' });
+};
 
 // =============================================================
 // УЛЬТИМАТИВНЫЙ ФАРШ: ЗАЛ СЛАВЫ И ТОП ЧАТА (РЕЙТИНГ)
