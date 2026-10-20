@@ -460,12 +460,43 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
                 f"{top_info}\n\n"
                 f"💡 Чтобы зафиксировать напиток, используйте `/drink [напиток] [мл]`"
             )
-            kb = []
+            kb = [
+                [InlineKeyboardButton(text="📜 Официальный протокол ВФЛ", callback_data=f"export_chat:{chat.id}")]
+            ]
             if WEBAPP_URL:
                 kb.append([get_webapp_button("📲 Открыть Mini App чата", f"{WEBAPP_URL}?chat_id={chat.id}", f"chat_{chat.id}", is_group=True)])
             await safe_answer(message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
         else:
             await safe_answer(message, "📊 Команда `/stats` показывает сводку по чату. Добавьте бота в группу с друзьями!")
+
+    # -------------------------------------------------------------
+    # ОФИЦИАЛЬНЫЙ ПРОТОКОЛ И ИНФОГРАФИКА ЧАТА (/export_stats)
+    # -------------------------------------------------------------
+    @dp.message(Command("export_stats", "export", "протокол", "инфографика", "доска", prefix="/!"))
+    async def cmd_export_stats(message: types.Message):
+        chat = message.chat
+        if chat.type in ['group', 'supergroup']:
+            try:
+                mc = await bot.get_chat_member_count(chat.id)
+                database.track_or_update_chat(chat.id, chat.title, chat.type, mc)
+            except Exception:
+                pass
+            data = database.export_chat_infographics_data(chat.id)
+            text = database.format_chat_infographic_text(data)
+            kb = []
+            if WEBAPP_URL:
+                kb.append([get_webapp_button("📲 Открыть Mini App чата", f"{WEBAPP_URL}?chat_id={chat.id}", f"chat_{chat.id}", is_group=True)])
+            await safe_answer(message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb) if kb else None)
+        else:
+            await safe_answer(message, "📜 Команда `/export_stats` формирует спортивный протокол и инфографику для групповых чатов с друзьями. Добавьте бота в группу!")
+
+    @dp.callback_query(F.data.startswith("export_chat:"))
+    async def cb_export_chat(callback: types.CallbackQuery):
+        chat_id = int(callback.data.split(":")[1])
+        data = database.export_chat_infographics_data(chat_id)
+        text = database.format_chat_infographic_text(data)
+        await callback.answer()
+        await callback.message.answer(text, parse_mode="Markdown")
 
     # -------------------------------------------------------------
     # ФИКСАЦИЯ НАПИТКА (/drink)

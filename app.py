@@ -468,6 +468,18 @@ class LitrballHandler(http.server.SimpleHTTPRequestHandler):
                         self.send_json({"error": "Chat not found"}, status=404)
                 except Exception as e:
                     self.send_json({"error": str(e)}, status=400)
+        elif path == '/api/chat/export':
+            chat_id = query.get('chat_id', [None])[0]
+            if chat_id:
+                try:
+                    res = database.export_chat_infographics_data(int(chat_id))
+                    if res:
+                        res['formatted_text'] = database.format_chat_infographic_text(res)
+                        self.send_json(res)
+                    else:
+                        self.send_json({"error": "No stats found for chat"}, status=404)
+                except Exception as e:
+                    self.send_json({"error": str(e)}, status=400)
             else:
                 self.send_json({"error": "chat_id parameter required"}, status=400)
         elif path == '/api/athlete':

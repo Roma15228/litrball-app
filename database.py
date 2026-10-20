@@ -517,6 +517,138 @@ def get_chat_stats(chat_id: int) -> dict:
     conn.close()
     return chat_dict
 
+def export_chat_infographics_data(chat_id: int) -> dict:
+    """Собирает структурированные данные для инфографики и протокола застолья чата"""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('SELECT * FROM chats WHERE chat_id = ?', (chat_id,))
+    chat = c.fetchone()
+    
+    if not chat:
+        c.execute('SELECT COUNT(*) as cnt, SUM(pure_ethanol_g) as eth, SUM(drinks_count) as drk FROM chat_members WHERE chat_id = ?', (chat_id,))
+        agg = c.fetchone()
+        if agg and agg['cnt'] > 0:
+            title = "Застольный чат"
+            total_ethanol_g = round(agg['eth'] or 0, 1)
+            drinks_count = agg['drk'] or 0
+            member_count = agg['cnt']
+        else:
+            conn.close()
+            return None
+    else:
+        title = chat['title']
+        total_ethanol_g = round(chat['total_ethanol_g'] or 0, 1)
+        drinks_count = chat['drinks_count'] or 0
+        member_count = chat['member_count'] or 0
+
+    # Список лидеров
+    c.execute('''
+        SELECT user_name, username, score, rank_title, pure_ethanol_g, drinks_count, last_drink
+        FROM chat_members
+        WHERE chat_id = ?
+        ORDER BY score DESC
+        LIMIT 10
+    ''', (chat_id,))
+    athletes = [dict(row) for row in c.fetchall()]
+    
+    # Самый популярный напиток в чате
+    c.execute('''
+        SELECT drink_name, COUNT(*) as cnt, SUM(pure_ethanol_g) as eth
+        FROM chat_drinks
+        WHERE chat_id = ?
+        GROUP BY drink_name
+        ORDER BY cnt DESC
+        LIMIT 1
+    ''', (chat_id,))
+    fav_row = c.fetchone()
+    favorite_drink = {
+        "name": fav_row['drink_name'],
+        "count": fav_row['cnt'],
+        "total_ethanol_g": round(fav_row['eth'] or 0, 1)
+    } if fav_row else None
+
+    conn.close()
+
+    # Эквиваленты в бутылках и ящиках
+    vodka_bottles = round(total_ethanol_g / (500 * 0.40 * 0.789), 1) if total_ethanol_g > 0 else 0.0
+    beer_crates = round(total_ethanol_g / (20 * 500 * 0.05 * 0.789), 1) if total_ethanol_g > 0 else 0.0
+
+    # Определение командного статуса сборной
+    if total_ethanol_g >= 1500:
+        team_status = "👑 СБОРНАЯ ВЫСШЕЙ ЛИГИ ВФЛ"
+    elif total_ethanol_g >= 700:
+        team_status = "⭐ ЭЛИТНЫЙ КЛУБ МАСТЕРОВ"
+    elif total_ethanol_g >= 250:
+        team_status = "🥈 БОЕВОЙ АКТИВ ТОВАРИЩЕСТВА"
+    elif total_ethanol_g > 0:
+        team_status = "🍼 ЮНОШЕСКАЯ СБОРНАЯ (РАЗМИНКА)"
+    else:
+        team_status = "🧃 КЕФИРНЫЙ КРУЖОК"
+
+    return {
+        "chat_id": chat_id,
+        "title": title,
+        "team_status": team_status,
+        "total_ethanol_g": total_ethanol_g,
+        "drinks_count": drinks_count,
+        "active_athletes_count": len(athletes),
+        "member_count": member_count,
+        "vodka_bottles": vodka_bottles,
+        "beer_crates": beer_crates,
+        "favorite_drink": favorite_drink,
+        "athletes": athletes
+    }
+
+def format_chat_infographic_text(data: dict) -> str:
+    """Форматирует данные сводки в текстовую инфографику с псевдографикой и пьедесталом"""
+    if not data:
+        return "⚠️ Протокол не может быть сформирован: в этом чате еще никто не подходил к снаряду!"
+
+    title = data.get("title", "Застольный чат")
+    status = data.get("team_status", "ВФЛ")
+    total_eth = data.get("total_ethanol_g", 0)
+    vodka = data.get("vodka_bottles", 0)
+    crates = data.get("beer_crates", 0)
+    drinks_cnt = data.get("drinks_count", 0)
+    fav = data.get("favorite_drink")
+    fav_text = f"{fav['name']} ({fav['count']} раз)" if fav else "Пока не определен"
+
+    lines = [
+        "╔═══════════════════════════════════════╗",
+        "║  🏆 ВФЛ: ОФИЦИАЛЬНЫЙ ПРОТОКОЛ ЗАСТОЛЬЯ ║",
+        "╚═══════════════════════════════════════╝",
+        f"📍 **Чат:** «{title}»",
+        f"🎖️ **Категория:** {status}\n",
+        "📊 **ОБЩИЕ ПОКАЗАТЕЛИ СБОРНОЙ:**",
+        f"├ 🧪 Чистый спирт: **{total_eth} г**",
+        f"├ 🍾 В бутылках беленькой (0.5л): **~{vodka} шт.**",
+        f"├ 🍻 В ящиках пенного (по 20 шт): **~{crates} ящ.**",
+        f"├ 🎯 Всего подходов к снаряду: **{drinks_cnt}**",
+        f"└ 🍹 Коронный снаряд: **{fav_text}**\n",
+        "🏆 **ПЬЕДЕСТАЛ ПОЧЕТА (ТОП АТЛЕТОВ):**"
+    ]
+
+    athletes = data.get("athletes", [])
+    if not athletes:
+        lines.append("   _В строю пока пусто — время открыть первую бутылку!_")
+    else:
+        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+        for idx, a in enumerate(athletes[:3]):
+            m = medals.get(idx, "🏅")
+            uname = f" (@{a['username']})" if a.get('username') else ""
+            lines.append(f"{m} **[{idx + 1}] {a['user_name']}**{uname}")
+            lines.append(f"   └── **{a['score']}** оч. • _{a['rank_title']}_ • {a['pure_ethanol_g']}г спирта")
+
+        if len(athletes) > 3:
+            lines.append("\n🎖️ **В СТРОЮ (ОСНОВНОЙ СОСТАВ):**")
+            num_emojis = ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            for idx, a in enumerate(athletes[3:10]):
+                e = num_emojis[idx] if idx < len(num_emojis) else "▫️"
+                lines.append(f"{e} **{a['user_name']}** — {a['score']} оч. (_{a['rank_title']}_)")
+
+    lines.append("\n⚖️ _Протокол аттестован Высшей Аттестационной Комиссией (ВАК ВФЛ)_")
+    return "\n".join(lines)
+
 def create_or_play_duel(creator_data: dict, opponent_data: dict = None) -> dict:
     """Создает или разыгрывает дуэль между двумя атлетами"""
     import random
