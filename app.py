@@ -133,6 +133,25 @@ RANKS = [
     }
 ]
 
+# Официальные пресеты напитков и легендарных коктейлей ВФЛ
+DRINK_PRESETS = [
+    {"id": "beer_light", "name": "Светлое пиво", "category": "beer", "volume_ml": 500, "abv": 4.8, "icon": "🍺", "desc": "Классический лагер для разминки"},
+    {"id": "beer_ipa", "name": "Крафтовое IPA", "category": "beer", "volume_ml": 500, "abv": 6.8, "icon": "🍻", "desc": "Охмеленный эль с плотной пеной"},
+    {"id": "cider", "name": "Сухой сидр", "category": "beer", "volume_ml": 500, "abv": 5.5, "icon": "🍏", "desc": "Яблочный освежающий норматив"},
+    {"id": "wine_glass", "name": "Бокал вина", "category": "wine", "volume_ml": 150, "abv": 12.5, "icon": "🍷", "desc": "Сухое красное или белое"},
+    {"id": "sparkling", "name": "Игристое / Шампанское", "category": "wine", "volume_ml": 150, "abv": 11.5, "icon": "🥂", "desc": "Спортивные пузырьки удачи"},
+    {"id": "vodka_shot", "name": "Стопка водки", "category": "spirits", "volume_ml": 50, "abv": 40.0, "icon": "🥃", "desc": "Базовый снаряд высшей лиги"},
+    {"id": "whiskey", "name": "Виски / Коньяк", "category": "spirits", "volume_ml": 100, "abv": 40.0, "icon": "🥃", "desc": "Выдержка и благородный темп"},
+    {"id": "tequila_shot", "name": "Шот текилы", "category": "spirits", "volume_ml": 50, "abv": 38.0, "icon": "🍋", "desc": "Лизнул, опрокинул, куснул"},
+    {"id": "nastoyka", "name": "Настойка деда", "category": "spirits", "volume_ml": 50, "abv": 45.0, "icon": "🧪", "desc": "Секретный ягодный допинг"},
+    {"id": "cocktail_ersh", "name": "Коктейль «Ёрш»", "category": "cocktails", "volume_ml": 500, "abv": 12.0, "icon": "🍹", "desc": "Пиво + водка (классика ВФЛ)"},
+    {"id": "cocktail_severnoe", "name": "«Северное сияние»", "category": "cocktails", "volume_ml": 200, "abv": 22.0, "icon": "🌌", "desc": "Водка с шампанским — полярный взлет"},
+    {"id": "cocktail_tequila_boom", "name": "«Текила Бум»", "category": "cocktails", "volume_ml": 100, "abv": 19.0, "icon": "💥", "desc": "Текила со спрайтом, удар об стол"},
+    {"id": "cocktail_gin_tonic", "name": "Джин-тоник", "category": "cocktails", "volume_ml": 300, "abv": 9.0, "icon": "🍸", "desc": "Лонг-дринк с долькой лайма"},
+    {"id": "shot_boyarsky", "name": "Шот «Боярский»", "category": "shots", "volume_ml": 50, "abv": 32.0, "icon": "💣", "desc": "Водка, гренадин, табаско — Тысяча чертей!"},
+    {"id": "extreme_absinthe", "name": "Абсент ритуальный", "category": "extreme", "volume_ml": 50, "abv": 70.0, "icon": "🔥", "desc": "Экстремальный нокаут-снаряд с полынью"}
+]
+
 # Вопросы теоретического экзамена ВАК Литрбола
 QUIZ_QUESTIONS = [
     {
@@ -351,7 +370,16 @@ def calculate_score(data):
 
 def suggest_disciplines(drinks, hours):
     """Определение коронной дисциплины на основе напитков"""
-    has_beer = any('пив' in d.get('name', '').lower() or d.get('abv', 0) <= 8 for d in drinks)
+    names_lower = " ".join(d.get('name', '').lower() for d in drinks)
+    
+    if "абсент" in names_lower or any(d.get('abv', 0) >= 65 for d in drinks):
+        return "Экстремальный нокаут-спринт (Абсент-Тур)"
+    elif "северное" in names_lower or "сияние" in names_lower:
+        return "Полярный штурм «Северное сияние»"
+    elif "боярск" in names_lower:
+        return "Мушкетерская дуэль «Тысяча чертей»"
+
+    has_beer = any('пив' in d.get('name', '').lower() or (d.get('abv', 0) <= 8 and 'вин' not in d.get('name', '').lower() and 'сидр' not in d.get('name', '').lower()) for d in drinks)
     has_vodka = any('водк' in d.get('name', '').lower() or d.get('abv', 0) >= 38 for d in drinks)
     
     if has_beer and has_vodka:
@@ -413,6 +441,8 @@ class LitrballHandler(http.server.SimpleHTTPRequestHandler):
 
         if path == '/api/ranks':
             self.send_json(RANKS)
+        elif path == '/api/drinks':
+            self.send_json(DRINK_PRESETS)
         elif path == '/api/questions':
             self.send_json(QUIZ_QUESTIONS)
         elif path == '/api/achievements':

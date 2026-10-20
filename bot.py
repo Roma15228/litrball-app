@@ -495,25 +495,48 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
                     InlineKeyboardButton(text="🥃 Виски 100мл", callback_data="drink_act:whiskey:100:40.0")
                 ],
                 [
-                    InlineKeyboardButton(text="🍹 Коктейль «Ёрш» 0.5л", callback_data="drink_act:ersh:500:12.0")
+                    InlineKeyboardButton(text="🍹 Коктейль «Ёрш» 0.5л", callback_data="drink_act:ersh:500:12.0"),
+                    InlineKeyboardButton(text="🍏 Сидр 0.5л", callback_data="drink_act:cider:500:5.5")
+                ],
+                [
+                    InlineKeyboardButton(text="🌌 Сев. Сияние 200мл", callback_data="drink_act:severnoe:200:22.0"),
+                    InlineKeyboardButton(text="💥 Текила Бум 100мл", callback_data="drink_act:boom:100:19.0")
+                ],
+                [
+                    InlineKeyboardButton(text="💣 Шот «Боярский» 50мл", callback_data="drink_act:boyarsky:50:32.0"),
+                    InlineKeyboardButton(text="🔥 Абсент 50мл", callback_data="drink_act:absinthe:50:70.0")
                 ]
             ])
             await safe_answer(message, f"🍺 Гражданин {user.first_name}, выберите подход к снаряду:", reply_markup=kb)
             return
 
         raw_input = " ".join(text_args).lower()
-        if "водк" in raw_input:
+        if "абсент" in raw_input:
+            drink_name, abv, volume_ml = "Абсент ритуальный", 70.0, 50.0
+        elif "северн" in raw_input or "сияни" in raw_input:
+            drink_name, abv, volume_ml = "«Северное сияние»", 22.0, 200.0
+        elif "боярск" in raw_input:
+            drink_name, abv, volume_ml = "Шот «Боярский»", 32.0, 50.0
+        elif "бум" in raw_input:
+            drink_name, abv, volume_ml = "«Текила Бум»", 19.0, 100.0
+        elif "водк" in raw_input:
             drink_name, abv, volume_ml = "Водка", 40.0, 50.0
         elif "пив" in raw_input or "пенн" in raw_input:
             drink_name, abv, volume_ml = "Пиво", 5.0, 500.0
         elif "вин" in raw_input:
             drink_name, abv, volume_ml = "Вино", 12.5, 150.0
+        elif "шампанск" in raw_input or "игрист" in raw_input:
+            drink_name, abv, volume_ml = "Шампанское", 11.5, 150.0
         elif "виск" in raw_input or "коньяк" in raw_input:
             drink_name, abv, volume_ml = "Виски/Коньяк", 40.0, 100.0
         elif "сидр" in raw_input:
             drink_name, abv, volume_ml = "Сидр", 5.5, 500.0
+        elif "настойк" in raw_input:
+            drink_name, abv, volume_ml = "Настойка деда", 45.0, 50.0
         elif "текил" in raw_input or "ром" in raw_input:
             drink_name, abv, volume_ml = "Текила/Ром", 40.0, 50.0
+        elif "джин" in raw_input:
+            drink_name, abv, volume_ml = "Джин-тоник", 9.0, 300.0
         elif "ёрш" in raw_input or "ерш" in raw_input:
             drink_name, abv, volume_ml = "Коктейль «Ёрш»", 12.0, 500.0
         else:
@@ -564,10 +587,15 @@ async def register_handlers(dp: Dispatcher, bot: Bot):
         name_map = {
             "beer": "Светлое пиво",
             "ipa": "Крафтовое IPA",
+            "cider": "Сухой сидр",
             "vodka": "Водка",
             "wine": "Красное вино",
             "whiskey": "Виски/Коньяк",
-            "ersh": "Коктейль «Ёрш»"
+            "ersh": "Коктейль «Ёрш»",
+            "severnoe": "«Северное сияние»",
+            "boom": "«Текила Бум»",
+            "boyarsky": "Шот «Боярский»",
+            "absinthe": "Абсент ритуальный"
         }
         drink_name = name_map.get(d_type, "Напиток")
         user = callback.from_user

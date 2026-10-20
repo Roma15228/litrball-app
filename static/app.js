@@ -28,16 +28,23 @@ const STATE = {
   detectorScore: 0
 };
 
-// Пресеты напитков
+// Пресеты напитков и легендарных коктейлей ВФЛ
 const DRINK_PRESETS = [
   { name: "Светлое пиво", volume_ml: 500, abv: 4.8, icon: "🍺" },
   { name: "Крафтовое IPA", volume_ml: 500, abv: 6.8, icon: "🍻" },
-  { name: "Стопка водки", volume_ml: 50, abv: 40.0, icon: "🥃" },
+  { name: "Сухой сидр", volume_ml: 500, abv: 5.5, icon: "🍏" },
   { name: "Бокал вина", volume_ml: 150, abv: 12.5, icon: "🍷" },
+  { name: "Шампанское / Игристое", volume_ml: 150, abv: 11.5, icon: "🥂" },
+  { name: "Стопка водки", volume_ml: 50, abv: 40.0, icon: "🥃" },
   { name: "Виски / Коньяк", volume_ml: 100, abv: 40.0, icon: "🥃" },
-  { name: "Коктейль «Ёрш»", volume_ml: 500, abv: 12.0, icon: "🍹" },
   { name: "Шот текилы", volume_ml: 50, abv: 38.0, icon: "🍋" },
-  { name: "Настойка деда", volume_ml: 50, abv: 45.0, icon: "🧪" }
+  { name: "Настойка деда", volume_ml: 50, abv: 45.0, icon: "🧪" },
+  { name: "Коктейль «Ёрш»", volume_ml: 500, abv: 12.0, icon: "🍹" },
+  { name: "«Северное сияние»", volume_ml: 200, abv: 22.0, icon: "🌌" },
+  { name: "«Текила Бум»", volume_ml: 100, abv: 19.0, icon: "💥" },
+  { name: "Джин-тоник", volume_ml: 300, abv: 9.0, icon: "🍸" },
+  { name: "Шот «Боярский»", volume_ml: 50, abv: 32.0, icon: "💣" },
+  { name: "Абсент ритуальный", volume_ml: 50, abv: 70.0, icon: "🔥" }
 ];
 
 // Инициализация при загрузке страницы
