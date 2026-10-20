@@ -8,7 +8,7 @@ import json
 import os
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "litrball.db")
+DB_PATH = os.environ.get("LITRBALL_DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "litrball.db"))
 
 ACHIEVEMENTS_LIST = [
     {"id": "first_sip", "title": "Первый старт", "desc": "Рассчитал свой первый норматив ВФЛ", "icon": "🍼"},
@@ -26,7 +26,8 @@ ACHIEVEMENTS_LIST = [
 ]
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    db_file = os.environ.get("LITRBALL_DB_PATH", DB_PATH)
+    conn = sqlite3.connect(db_file)
     conn.row_factory = sqlite3.Row
     return conn
 
